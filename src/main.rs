@@ -1,11 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bevy::{
-    asset::RenderAssetUsages,
-    math::primitives::Rectangle,
-    mesh::{Mesh, MeshVertexAttribute},
-};
-
 const CHUNK_SIZE: u32 = 32;
 const CHUNK_SIZE_U: usize = CHUNK_SIZE as usize;
 const CHUNK_SIZE_P: u32 = CHUNK_SIZE + 2;
@@ -15,7 +9,24 @@ const CHUNK_SIZE2_U: usize = CHUNK_SIZE2 as usize;
 const CHUNK_SIZE3: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 const CHUNK_SIZE3_U: usize = CHUNK_SIZE3 as usize;
 
-fn main() {}
+fn main() {
+    for i in 0..32_768 {
+        let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
+        for k in 0..CHUNK_SIZE3_U {
+            voxels[k] = if rand::random() {
+                BlockType::Empty
+            } else {
+                BlockType::Dirt
+            };
+        }
+        let chunk = Chunk { voxels };
+        let refs: [Arc<Chunk>; 27] = std::array::from_fn(|_| Arc::new(chunk.clone()));
+        let chunk_refs = ChunkRefs { refs: refs };
+        if i % 1_024 == 0 {
+            dbg!(mesh(chunk_refs), i);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -805,6 +816,7 @@ fn greedy_mesh(layer: &[u32; 32]) -> Vec<Quad> {
     quads
 }
 
+#[derive(Copy, Clone)]
 struct Chunk {
     voxels: [BlockType; CHUNK_SIZE3_U],
 }
@@ -844,7 +856,7 @@ impl ChunkRefs {
     }
 }
 
-fn mesh(chunk_refs: ChunkRefs) {
+fn mesh(chunk_refs: ChunkRefs) -> Vec<[f32; 3]> {
     // 3 Axis
     // CHUNK_SIZE3 worth of binary data
     // so [u32; CHUNK_SIZE2]
@@ -964,9 +976,5 @@ fn mesh(chunk_refs: ChunkRefs) {
             }
         }
     }
-    let mesh = Mesh::new(
-        bevy::mesh::PrimitiveTopology::TriangleList,
-        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+    vertices
 }
