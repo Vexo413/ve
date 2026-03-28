@@ -246,21 +246,11 @@ fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
                     // X: X position in chunk
                     // WWWWWHHHHHTTTTFFFZZZZZYYYYYZZZZZ
                     let mut encoded_data: u32 = 0;
-                    let mut pos = match direction {
+                    let pos = match direction {
                         FaceDirection::PosX | FaceDirection::NegX => UVec3::new(*layer_index, x, y), // quad.x -> i -> og y, goes in it's place
                         FaceDirection::PosY | FaceDirection::NegY => UVec3::new(y, *layer_index, x), // quad.x -> i -> og z, goes in it's place
                         FaceDirection::PosZ | FaceDirection::NegZ => UVec3::new(x, y, *layer_index), // quad.x -> i ->  og x, goes in it's place
                     };
-                    let shift = match direction {
-                        FaceDirection::PosX => UVec3::new(1, 0, 0),
-                        FaceDirection::PosY => UVec3::new(0, 1, 0),
-                        FaceDirection::PosZ => UVec3::new(0, 0, 1),
-                        _ => {
-                            println!("Negative");
-                            UVec3::ZERO
-                        }
-                    };
-                    pos = pos + shift;
                     encoded_data |= pos.x;
                     encoded_data |= pos.y << 5;
                     encoded_data |= pos.z << 10;

@@ -1,6 +1,7 @@
 use crate::{
     Instance,
     constants::{CHUNK_SIZE_U, CHUNK_SIZE2_U},
+    position::UVec3,
 };
 use std::sync::Arc;
 
@@ -267,7 +268,7 @@ impl State {
         let camera = Camera {
             // position the camera 1 unit up and 2 units back
             // +z is out of the screen
-            eye: (0.0, 1.0, 2.0).into(),
+            eye: (-10.0, -10.0, -10.0).into(),
             // have it look at the origin
             target: (0.0, 0.0, 0.0).into(),
             // which way is "up"
@@ -568,16 +569,26 @@ impl ApplicationHandler for App {
         // Generate a test chunk
         use crate::{BlockType, CHUNK_SIZE3_U, Chunk, ChunkRefs, mesh};
         let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
-        voxels[0] = BlockType::Dirt;
-        voxels[1] = BlockType::Dirt;
-        // voxels[CHUNK_SIZE2_U + CHUNK_SIZE_U + 1] = BlockType::Dirt;
-        // for k in 0..CHUNK_SIZE3_U {
-        //     voxels[k] = if rand::random() {
-        //         BlockType::Empty
-        //     } else {
-        //         BlockType::Dirt
-        //     };
+        // voxels[UVec3::new(0, 0, 0).to_index() as usize] = BlockType::Dirt;
+        // voxels[UVec3::new(1, 0, 0).to_index() as usize] = BlockType::Dirt;
+        // voxels[UVec3::new(0, 1, 0).to_index() as usize] = BlockType::Dirt;
+        // voxels[UVec3::new(0, 0, 1).to_index() as usize] = BlockType::Dirt;
+        // voxels[UVec3::new(1, 1, 0).to_index() as usize] = BlockType::Dirt;
+        // voxels[UVec3::new(1, 1, 1).to_index() as usize] = BlockType::Dirt;
+        // for x in 0..2 {
+        //     for y in 0..2 {
+        //         for z in 0..2 {
+        //             voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
+        //         }
+        //     }
         // }
+        for k in 0..CHUNK_SIZE3_U {
+            voxels[k] = if rand::random() {
+                BlockType::Empty
+            } else {
+                BlockType::Dirt
+            };
+        }
         let chunk = Chunk { voxels };
         let refs: [Arc<Chunk>; 27] = std::array::from_fn(|_| Arc::new(chunk.clone()));
         let chunk_refs = ChunkRefs { refs };

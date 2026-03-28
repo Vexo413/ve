@@ -63,17 +63,17 @@ fn vs_main(
     // Face directions:
     // 0: PosX, 1: NegX, 2: PosY, 3: NegY, 4: PosZ, 5: NegZ
     if face == 0u { // PosX
-        pos = vec3<f32>(x, y + scaled_pos.x, z + scaled_pos.y);
+        pos = vec3<f32>(x + 1.0, y + scaled_pos.x, z + scaled_pos.y);
     } else if face == 1u { // NegX
-        pos = vec3<f32>(x, y + scaled_pos.y, z + scaled_pos.x);
+        pos = vec3<f32>(x, y + scaled_pos.x, z + scaled_pos.y);
     } else if face == 2u { // PosY
-        pos = vec3<f32>(x + scaled_pos.y, y, z + scaled_pos.x);
+        pos = vec3<f32>(x + scaled_pos.y, y + 1.0, z + scaled_pos.x);
     } else if face == 3u { // NegY
-        pos = vec3<f32>(x + scaled_pos.x, y, z + scaled_pos.y);
+        pos = vec3<f32>(x + scaled_pos.y, y, z + scaled_pos.x);
     } else if face == 4u { // PosZ
-        pos = vec3<f32>(x + scaled_pos.x, y + scaled_pos.y, z);
+        pos = vec3<f32>(x + scaled_pos.x, y + scaled_pos.y, z + 1.0);
     } else { // NegZ (5)
-        pos = vec3<f32>(x + scaled_pos.y, y + scaled_pos.x, z);
+        pos = vec3<f32>(x + scaled_pos.x, y + scaled_pos.y, z);
     }
 
     var out: VertexOutput;
@@ -91,7 +91,7 @@ fn vs_main(
     );
     out.color = colors[face];
     if block_type == 1u { // Dirt
-        out.color     *= 0.5;
+        out.color           *= 0.5;
     }
 
     return out;
