@@ -161,9 +161,9 @@ fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
                 let column = occupied[axis * CHUNK_SIZE2_U + i * CHUNK_SIZE_U + j];
 
                 culled_mask[axis * 2 * CHUNK_SIZE2_U + /*0 * CHUNK_SIZE2_U +*/ i * CHUNK_SIZE_U + j] =
-                    column & !column >> 1;
+                    column & !(column >> 1);
                 culled_mask[axis * 2 * CHUNK_SIZE2_U + 1 * CHUNK_SIZE2_U + i * CHUNK_SIZE_U + j] =
-                    column & !column << 1;
+                    column & !(column << 1);
             }
         }
     }
@@ -200,6 +200,7 @@ fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
                     };
 
                     let current_voxel = chunk_refs.get_only_self(x, y, z);
+                    dbg!(current_voxel, axis);
                     // let current_voxel = chunks_refs.get_block(voxel_pos);
                     // we can only greedy mesh same block types + same ambient occlusion
                     let block_hash = current_voxel as u32;
@@ -217,6 +218,7 @@ fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
 
     let mut vertices = Vec::new();
     for (axis_index, axis_data) in data.iter().enumerate() {
+        dbg!(axis_data.len());
         let direction = match axis_index {
             0 => FaceDirection::PosX,
             1 => FaceDirection::NegX,
@@ -253,7 +255,10 @@ fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
                         FaceDirection::PosX => UVec3::new(1, 0, 0),
                         FaceDirection::PosY => UVec3::new(0, 1, 0),
                         FaceDirection::PosZ => UVec3::new(0, 0, 1),
-                        _ => UVec3::ZERO,
+                        _ => {
+                            println!("Negative");
+                            UVec3::ZERO
+                        }
                     };
                     pos = pos + shift;
                     encoded_data |= pos.x;
