@@ -1,9 +1,10 @@
 use crate::{
-    Instance,
-    constants::{CHUNK_SIZE_U, CHUNK_SIZE2_U},
-    position::UVec3,
+    chunk::{Instance, mesh},
+    constants::{CHUNK_SIZE, CHUNK_SIZE_U, CHUNK_SIZE2_U},
+    position::IVec3,
+    world::World,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use wgpu::util::DeviceExt;
 use winit::{
@@ -136,7 +137,6 @@ impl CameraController {
     fn update_camera(&self, camera: &mut Camera) {
         use cgmath::InnerSpace;
 
-        // Calculate new target based on yaw/pitch
         let forward = cgmath::Vector3::new(
             self.yaw.to_radians().cos() * self.pitch.to_radians().cos(),
             self.pitch.to_radians().sin(),
@@ -167,6 +167,12 @@ impl CameraController {
     }
 }
 
+struct ChunkRenderData {
+    instance_buffer: wgpu::Buffer,
+    instance_count: u32,
+    bind_group: wgpu::BindGroup,
+}
+
 struct State {
     instance: wgpu::Instance,
     window: Arc<Window>,
@@ -178,10 +184,9 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     depth_texture_view: wgpu::TextureView,
     index_buffer: wgpu::Buffer,
-    instance_buffer: Option<wgpu::Buffer>,
-    instance_count: u32,
-    uniform_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+    chunk_bind_group_layout: wgpu::BindGroupLayout,
+    chunks: HashMap<IVec3, ChunkRenderData>,
+    world: World,
     camera: Camera,
     camera_controller: CameraController,
     camera_uniform: CameraUniform,
@@ -235,15 +240,8 @@ impl State {
         let cap = surface.get_capabilities(&adapter);
         let surface_format = cap.formats[0];
 
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Uniform Buffer"),
-            size: std::mem::size_of::<ChunkUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Bind Group Layout"),
+        let chunk_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Chunk Bind Group Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
@@ -256,22 +254,9 @@ impl State {
             }],
         });
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Bind Group"),
-            layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
-
         let camera = Camera {
-            // position the camera 1 unit up and 2 units back
-            // +z is out of the screen
             eye: (-10.0, -10.0, -10.0).into(),
-            // have it look at the origin
             target: (0.0, 0.0, 0.0).into(),
-            // which way is "up"
             up: cgmath::Vector3::unit_y(),
             aspect: size.width as f32 / size.height as f32,
             fovy: 45.0,
@@ -312,14 +297,12 @@ impl State {
             label: Some("camera_bind_group"),
         });
 
-        // What bind groups are there, basically extra resources
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Voxel Pipeline Layout"),
-            bind_group_layouts: &[Some(&bind_group_layout), Some(&camera_bind_group_layout)],
+            bind_group_layouts: &[Some(&chunk_bind_group_layout), Some(&camera_bind_group_layout)],
             immediate_size: 0,
         });
 
-        // The shader code to be run
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Voxel Shader Module"),
             source: wgpu::ShaderSource::Wgsl(include_str!("main.wgsl").into()),
@@ -331,13 +314,12 @@ impl State {
                 format: wgpu::VertexFormat::Uint32,
                 offset: 0,
                 shader_location: 0,
-            }], // Normally from desc() function of a struct to match memory layout
+            }],
             step_mode: wgpu::VertexStepMode::Instance,
         };
 
         let depth_texture_view = Self::create_depth_texture(&device, &size, "depth_texture");
 
-        // This contains attributes which is builtin data for the vertices and stuff
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Voxel Render Pipeline"),
             layout: Some(&pipeline_layout),
@@ -345,10 +327,12 @@ impl State {
                 module: &shader_module,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[vertex_buffer_layout], // This is what the buffer data should look like, not the actual data being fed in
+                buffers: &[vertex_buffer_layout],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -376,6 +360,9 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let mut world = World::new(2);
+        world.update_load_area(IVec3::new(0, 0, 0));
+
         let state = State {
             instance,
             window,
@@ -387,10 +374,9 @@ impl State {
             render_pipeline,
             depth_texture_view,
             index_buffer,
-            instance_buffer: None,
-            instance_count: 0,
-            uniform_buffer,
-            bind_group,
+            chunk_bind_group_layout,
+            chunks: HashMap::new(),
+            world,
             camera,
             camera_controller: CameraController::new(0.2, 0.1),
             camera_uniform,
@@ -398,9 +384,7 @@ impl State {
             camera_bind_group,
         };
 
-        // Configure surface for the first time
         state.configure_surface();
-
         state
     }
 
@@ -408,34 +392,74 @@ impl State {
         &self.window
     }
 
-    fn update_instances(&mut self, instances: &[Instance], world_pos: [f32; 3]) {
-        self.instance_count = instances.len() as u32;
-        if self.instance_count == 0 {
-            return;
+    fn sync_world_to_gpu(&mut self) {
+        // Update world based on camera position
+        let camera_pos = IVec3::new(
+            (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
+            (self.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
+            (self.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
+        );
+        self.world.update_load_area(camera_pos);
+
+        // Remove chunks that are no longer in the world
+        self.chunks.retain(|pos, _| self.world.chunks.contains_key(pos));
+
+        // Add new chunks
+        for (&pos, _) in &self.world.chunks {
+            if !self.chunks.contains_key(&pos) {
+                if let Some(refs) = self.world.get_chunk_refs(pos) {
+                    let instances = mesh(refs);
+                    if instances.is_empty() {
+                        continue;
+                    }
+
+                    let instance_buffer = self.device.create_buffer_init(
+                        &wgpu::util::BufferInitDescriptor {
+                            label: Some("Instance Buffer"),
+                            contents: bytemuck::cast_slice(&instances),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        },
+                    );
+
+                    let uniform = ChunkUniform {
+                        world_pos: [
+                            (pos.x * CHUNK_SIZE as i32) as f32,
+                            (pos.y * CHUNK_SIZE as i32) as f32,
+                            (pos.z * CHUNK_SIZE as i32) as f32,
+                        ],
+                        _padding: 0.0,
+                    };
+                    let uniform_buffer = self.device.create_buffer_init(
+                        &wgpu::util::BufferInitDescriptor {
+                            label: Some("Chunk Uniform Buffer"),
+                            contents: bytemuck::cast_slice(&[uniform]),
+                            usage: wgpu::BufferUsages::UNIFORM,
+                        },
+                    );
+
+                    let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Chunk Bind Group"),
+                        layout: &self.chunk_bind_group_layout,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: uniform_buffer.as_entire_binding(),
+                        }],
+                    });
+
+                    self.chunks.insert(pos, ChunkRenderData {
+                        instance_buffer,
+                        instance_count: instances.len() as u32,
+                        bind_group,
+                    });
+                }
+            }
         }
-
-        let data: Vec<u32> = instances.iter().map(|i| i.0).collect();
-        self.instance_buffer = Some(self.device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(&data),
-                usage: wgpu::BufferUsages::VERTEX,
-            },
-        ));
-
-        let uniform = ChunkUniform {
-            world_pos,
-            _padding: 0.0,
-        };
-        self.queue
-            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniform]));
     }
 
     fn configure_surface(&self) {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: self.surface_format,
-            // Request compatibility with the sRGB-format texture view we‘re going to create later.
             view_formats: vec![self.surface_format.add_srgb_suffix()],
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             width: self.size.width,
@@ -449,7 +473,6 @@ impl State {
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
-            // reconfigure the surface
             self.configure_surface();
             self.depth_texture_view =
                 Self::create_depth_texture(&self.device, &self.size, "depth_texture");
@@ -464,12 +487,10 @@ impl State {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+        self.sync_world_to_gpu();
     }
 
     fn render(&mut self) {
-        // Create texture view.
-        // NOTE: We must handle Timeout because the surface may be unavailable
-        // (e.g., when the window is occluded on macOS).
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture) => texture,
             wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => return,
@@ -489,15 +510,11 @@ impl State {
         let texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor {
-                // Without add_srgb_suffix() the image we will be working with
-                // might not be "gamma correct".
                 format: Some(self.surface_format.add_srgb_suffix()),
                 ..Default::default()
             });
 
-        // Renders a GREEN screen
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        // Create the renderpass which will clear the screen.
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -506,7 +523,7 @@ impl State {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -523,24 +540,17 @@ impl State {
                 multiview_mask: None,
             });
 
-            if self.instance_count > 0 {
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.bind_group, &[]);
-                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                if let Some(ref buffer) = self.instance_buffer {
-                    render_pass.set_vertex_buffer(0, buffer.slice(..));
-                    render_pass.draw_indexed(0..6, 0, 0..self.instance_count);
-                }
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+            for chunk_data in self.chunks.values() {
+                render_pass.set_bind_group(0, &chunk_data.bind_group, &[]);
+                render_pass.set_vertex_buffer(0, chunk_data.instance_buffer.slice(..));
+                render_pass.draw_indexed(0..6, 0, 0..chunk_data.instance_count);
             }
         }
 
-        // If you wanted to call any drawing commands, they would go here.
-
-        // End the renderpass.
-
-        // Submit the command in the queue to execute
         self.queue.submit([encoder.finish()]);
         self.window.pre_present_notify();
         surface_texture.present();
@@ -554,50 +564,18 @@ struct App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        // Create window object
         let window = Arc::new(
             event_loop
                 .create_window(Window::default_attributes())
                 .unwrap(),
         );
 
-        let mut state = pollster::block_on(State::new(
+        let state = pollster::block_on(State::new(
             event_loop.owned_display_handle(),
             window.clone(),
         ));
 
-        // Generate a test chunk
-        use crate::{BlockType, CHUNK_SIZE3_U, Chunk, ChunkRefs, mesh};
-        let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
-        // voxels[UVec3::new(0, 0, 0).to_index() as usize] = BlockType::Dirt;
-        // voxels[UVec3::new(1, 0, 0).to_index() as usize] = BlockType::Dirt;
-        // voxels[UVec3::new(0, 1, 0).to_index() as usize] = BlockType::Dirt;
-        // voxels[UVec3::new(0, 0, 1).to_index() as usize] = BlockType::Dirt;
-        // voxels[UVec3::new(1, 1, 0).to_index() as usize] = BlockType::Dirt;
-        // voxels[UVec3::new(1, 1, 1).to_index() as usize] = BlockType::Dirt;
-        // for x in 0..2 {
-        //     for y in 0..2 {
-        //         for z in 0..2 {
-        //             voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
-        //         }
-        //     }
-        // }
-        for k in 0..CHUNK_SIZE3_U {
-            voxels[k] = if rand::random() {
-                BlockType::Empty
-            } else {
-                BlockType::Dirt
-            };
-        }
-        let chunk = Chunk { voxels };
-        let refs: [Arc<Chunk>; 27] = std::array::from_fn(|_| Arc::new(chunk.clone()));
-        let chunk_refs = ChunkRefs { refs };
-        let instances = mesh(chunk_refs);
-
-        state.update_instances(&instances, [0.0, 0.0, 0.0]);
-
         self.state = Some(state);
-
         window.request_redraw();
     }
 
@@ -624,18 +602,14 @@ impl ApplicationHandler for App {
                     .set_cursor_visible(button_state != winit::event::ElementState::Pressed);
             }
             WindowEvent::CloseRequested => {
-                println!("The close button was pressed; stopping");
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
                 state.update();
                 state.render();
-                // Emits a new redraw requested event.
                 state.get_window().request_redraw();
             }
             WindowEvent::Resized(size) => {
-                // Reconfigures the size of the surface. We do not re-render
-                // here as this event is always followed up by redraw request.
                 state.resize(size);
                 state.camera.aspect = size.width as f32 / size.height as f32;
             }
@@ -658,26 +632,9 @@ impl ApplicationHandler for App {
 }
 
 pub fn start() {
-    // wgpu uses `log` for all of our logging, so we initialize a logger with the `env_logger` crate.
-    //
-    // To change the log level, set the `RUST_LOG` environment variable. See the `env_logger`
-    // documentation for more information.
     env_logger::init();
-
     let event_loop = EventLoop::new().unwrap();
-
-    // When the current loop iteration finishes, immediately begin a new
-    // iteration regardless of whether or not new events are available to
-    // process. Preferred for applications that want to render as fast as
-    // possible, like games.
     event_loop.set_control_flow(ControlFlow::Poll);
-
-    // When the current loop iteration finishes, suspend the thread until
-    // another event arrives. Helps keeping CPU utilization low if nothing
-    // is happening, which is preferred if the application might be idling in
-    // the background.
-    // event_loop.set_control_flow(ControlFlow::Wait);
-
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
 }

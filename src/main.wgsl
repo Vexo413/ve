@@ -57,23 +57,30 @@ fn vs_main(
     );
     
     // quad_pos is (0,0), (1,0), (0,1), (1,1)
-    // We want to scale it by w and h
-    let scaled_pos = vec2<f32>(quad_pos.x * w, quad_pos.y * h);
+    
+    // For negative faces, we need to swap w and h and change the vertex order to keep CCW winding
+    var w_eff = w;
+    var h_eff = h;
+    if face % 2u == 1u {
+        w_eff = h;
+        h_eff = w;
+    }
+    let scaled_pos = vec2<f32>(quad_pos.x * w_eff, quad_pos.y * h_eff);
 
     // Face directions:
     // 0: PosX, 1: NegX, 2: PosY, 3: NegY, 4: PosZ, 5: NegZ
     if face == 0u { // PosX
         pos = vec3<f32>(x + 1.0, y + scaled_pos.x, z + scaled_pos.y);
     } else if face == 1u { // NegX
-        pos = vec3<f32>(x, y + scaled_pos.x, z + scaled_pos.y);
+        pos = vec3<f32>(x, y + scaled_pos.y, z + scaled_pos.x);
     } else if face == 2u { // PosY
         pos = vec3<f32>(x + scaled_pos.y, y + 1.0, z + scaled_pos.x);
     } else if face == 3u { // NegY
-        pos = vec3<f32>(x + scaled_pos.y, y, z + scaled_pos.x);
+        pos = vec3<f32>(x + scaled_pos.x, y, z + scaled_pos.y);
     } else if face == 4u { // PosZ
         pos = vec3<f32>(x + scaled_pos.x, y + scaled_pos.y, z + 1.0);
     } else { // NegZ (5)
-        pos = vec3<f32>(x + scaled_pos.x, y + scaled_pos.y, z);
+        pos = vec3<f32>(x + scaled_pos.y, y + scaled_pos.x, z);
     }
 
     var out: VertexOutput;

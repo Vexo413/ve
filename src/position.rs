@@ -1,7 +1,7 @@
 use crate::constants::*;
 use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Sub, SubAssign};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct IVec3 {
     pub x: i32,
     pub y: i32,
@@ -85,7 +85,7 @@ impl MulAssign for IVec3 {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct UVec3 {
     pub x: u32,
     pub y: u32,
