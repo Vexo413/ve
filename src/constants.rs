@@ -1,0 +1,8 @@
+pub const CHUNK_SIZE: u32 = 32;
+pub const CHUNK_SIZE_U: usize = CHUNK_SIZE as usize;
+pub const CHUNK_SIZE_P: u32 = CHUNK_SIZE + 2;
+pub const CHUNK_SIZE_PU: usize = CHUNK_SIZE_P as usize;
+pub const CHUNK_SIZE2: u32 = CHUNK_SIZE * CHUNK_SIZE;
+pub const CHUNK_SIZE2_U: usize = CHUNK_SIZE2 as usize;
+pub const CHUNK_SIZE3: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+pub const CHUNK_SIZE3_U: usize = CHUNK_SIZE3 as usize;
