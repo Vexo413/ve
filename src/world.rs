@@ -1,12 +1,12 @@
+use ahash::AHashMap;
 use noise::{Fbm, Perlin};
 
 use crate::chunk::{BlockType, Chunk, ChunkRefs};
 use crate::position::IVec3;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct World {
-    pub chunks: HashMap<IVec3, Arc<Chunk>>,
+    pub chunks: AHashMap<IVec3, Arc<Chunk>>,
     pub render_distance: i32,
     pub fbm: Fbm<Perlin>,
 }
@@ -14,7 +14,7 @@ pub struct World {
 impl World {
     pub fn new(render_distance: i32) -> Self {
         Self {
-            chunks: HashMap::new(),
+            chunks: AHashMap::new(),
             render_distance,
             fbm: Fbm::<Perlin>::new(rand::random()),
         }

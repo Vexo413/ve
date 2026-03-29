@@ -4,8 +4,10 @@ use crate::{
     position::IVec3,
     world::World,
 };
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
+use ahash::AHashMap;
+use cgmath::Vector3;
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
@@ -162,6 +164,8 @@ impl CameraController {
 
         camera.target = camera.eye + forward;
 
+        let forward = Vector3::new(forward.x, 0.0, forward.z);
+
         let right = forward.cross(camera.up).normalize();
 
         if self.is_down_pressed {
@@ -209,7 +213,7 @@ struct State {
     depth_texture_view: wgpu::TextureView,
     index_buffer: wgpu::Buffer,
     chunk_bind_group_layout: wgpu::BindGroupLayout,
-    chunks: HashMap<IVec3, ChunkRenderData>,
+    chunks: AHashMap<IVec3, ChunkRenderData>,
     world: World,
     camera: Camera,
     camera_controller: CameraController,
@@ -406,7 +410,7 @@ impl State {
             depth_texture_view,
             index_buffer,
             chunk_bind_group_layout,
-            chunks: HashMap::new(),
+            chunks: AHashMap::new(),
             world,
             camera,
             camera_controller: CameraController::new(2.0, 0.1),
@@ -440,6 +444,7 @@ impl State {
             .retain(|pos, _| self.world.chunks.contains_key(pos));
 
         // Add new chunks
+        println!("Once");
         for (&pos, _) in &self.world.chunks {
             if !self.chunks.contains_key(&pos) {
                 if let Some(refs) = self.world.get_chunk_refs(pos) {
