@@ -4,7 +4,7 @@ use crate::{
     position::IVec3,
     world::World,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use wgpu::util::DeviceExt;
 use winit::{
@@ -216,6 +216,9 @@ struct State {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    last_frame_time: Instant,
+    frame_count: u32,
+    fps: u32,
 }
 
 impl State {
@@ -410,6 +413,9 @@ impl State {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            last_frame_time: Instant::now(),
+            frame_count: 0,
+            fps: 0,
         };
 
         state.configure_surface();
@@ -586,6 +592,15 @@ impl State {
         self.queue.submit([encoder.finish()]);
         self.window.pre_present_notify();
         surface_texture.present();
+
+        self.frame_count += 1;
+        let elapsed = self.last_frame_time.elapsed().as_secs_f64();
+        if elapsed >= 1.0 {
+            self.fps = self.frame_count;
+            self.frame_count = 0;
+            self.last_frame_time = Instant::now();
+            self.window.set_title(&format!("ve - {} FPS", self.fps));
+        }
     }
 }
 

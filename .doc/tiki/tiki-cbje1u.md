@@ -1,7 +1,7 @@
 ---
 title: FPS Counter
 type: story
-status: backlog
+status: done
 tags:
     - idea
 assignee: Parker Malzahn
