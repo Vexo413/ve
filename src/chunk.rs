@@ -21,10 +21,10 @@ impl BlockType {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Quad {
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
 }
 
 enum FaceDirection {
@@ -95,12 +95,11 @@ impl Chunk {
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
                 let h = (noise.get([
-                    (position.x as f64 * CHUNK_SIZE as f64 + x as f64) / 100.0,
-                    (position.z as f64 * CHUNK_SIZE as f64 + z as f64) / 100.0,
+                    (position.x as f64 * CHUNK_SIZE as f64 + x as f64) / 50.0,
+                    (position.z as f64 * CHUNK_SIZE as f64 + z as f64) / 50.0,
                 ]) + 1.0)
                     / 2.0
                     * CHUNK_SIZE as f64;
-                // dbg!(h);
                 for y in 0..CHUNK_SIZE {
                     if y <= h as u32 {
                         voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
@@ -136,13 +135,17 @@ impl ChunkRefs {
         let x = (x + 32) as u32;
         let y = (y + 32) as u32;
         let z = (z + 32) as u32;
-        let (x_chunk, x) = ((x / 32), (x % 32));
-        let (y_chunk, y) = ((y / 32), (y % 32));
-        let (z_chunk, z) = ((z / 32), (z % 32));
+        let x_chunk = x >> 5;
+        let y_chunk = y >> 5;
+        let z_chunk = z >> 5;
+        let x = x & 31;
+        let y = y & 31;
+        let z = z & 31;
 
         let chunk_index = x_chunk * 9 + y_chunk * 3 + z_chunk;
         self.get_from_chunk(x, y, z, chunk_index)
     }
+
     pub fn get_only_self(&self, x: u32, y: u32, z: u32) -> BlockType {
         self.get_from_chunk(x, y, z, 13)
     }
