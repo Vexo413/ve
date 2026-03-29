@@ -409,7 +409,7 @@ impl State {
             chunks: HashMap::new(),
             world,
             camera,
-            camera_controller: CameraController::new(0.2, 0.1),
+            camera_controller: CameraController::new(2.0, 0.1),
             camera_uniform,
             camera_buffer,
             camera_bind_group,

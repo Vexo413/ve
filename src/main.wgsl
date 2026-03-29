@@ -94,11 +94,11 @@ fn vs_main(
         vec3<f32>(0.0, 1.0, 0.0),
         vec3<f32>(0.0, 1.0, 1.0),
         vec3<f32>(0.0, 0.0, 1.0),
-        vec3<f32>(1.0, 1.0, 1.0)
+        vec3<f32>(1.0, 0.0, 1.0)
     );
     out.color = colors[face];
     if block_type == 1u { // Dirt
-        out.color                                         *= 0.5;
+        out.color                                           *= 0.5;
     }
 
     return out;

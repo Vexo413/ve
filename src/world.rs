@@ -1,4 +1,7 @@
-use crate::chunk::{Chunk, ChunkRefs};
+use noise::{Fbm, NoiseFn, Perlin};
+
+use crate::chunk::{BlockType, Chunk, ChunkRefs};
+use crate::constants::CHUNK_SIZE;
 use crate::position::IVec3;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,11 +28,17 @@ impl World {
         });
 
         // Load new chunks within render distance
+        let fbm = Fbm::<Perlin>::new(rand::random());
         for x in -self.render_distance..=self.render_distance {
             for y in -self.render_distance..=self.render_distance {
                 for z in -self.render_distance..=self.render_distance {
                     let pos = IVec3::new(center.x + x, center.y + y, center.z + z);
-                    self.chunks.entry(pos).or_insert_with(|| Arc::new(Chunk::new_random()));
+                    let chunk = match y {
+                        ..0 => Chunk::full(BlockType::Dirt),
+                        0 => Chunk::new_terain(&fbm, pos),
+                        1.. => Chunk::empty(),
+                    };
+                    self.chunks.entry(pos).or_insert_with(|| Arc::new(chunk));
                 }
             }
         }
@@ -49,7 +58,7 @@ impl World {
                 }
             }
         }
-        
+
         let refs_array: [Arc<Chunk>; 27] = refs.try_into().ok()?;
         Some(ChunkRefs { refs: refs_array })
     }
