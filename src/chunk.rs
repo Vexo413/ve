@@ -1,7 +1,8 @@
 use crate::position::UVec3;
 use crate::{constants::*, position::IVec3};
+use ahash::{HashMap, HashMapExt};
 use noise::{Fbm, NoiseFn, Perlin};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -15,7 +16,7 @@ pub enum BlockType {
 
 impl BlockType {
     pub fn is_solid(&self) -> bool {
-        !matches!(self, BlockType::Empty)
+        *self != BlockType::Empty
     }
 }
 

@@ -295,5 +295,5 @@ fn test_meshing_algorithm() {
     let chunk_refs = ChunkRefs {
         refs: std::array::repeat(Arc::new(chunk)),
     };
-    let faces = mesh(chunk_refs);
+    let _ = mesh(chunk_refs);
 }
