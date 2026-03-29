@@ -196,8 +196,8 @@ impl CameraController {
 }
 
 struct ChunkRenderData {
-    instance_buffer: wgpu::Buffer,
-    instance_count: u32,
+    face_buffers: [Option<wgpu::Buffer>; 6],
+    face_counts: [u32; 6],
     bind_group: wgpu::BindGroup,
 }
 
@@ -450,19 +450,35 @@ impl State {
                     let pos = camera_pos + IVec3::new(x, y, z);
                     if !self.chunks.contains_key(&pos) {
                         if let Some(refs) = self.world.get_chunk_refs(pos) {
-                            let instances = mesh(refs);
-                            if instances.is_empty() {
+                            let instances_all = mesh(refs);
+                            let mut has_any = false;
+                            for f in 0..6 {
+                                if !instances_all[f].is_empty() {
+                                    has_any = true;
+                                    break;
+                                }
+                            }
+
+                            if !has_any {
                                 self.chunks.insert(pos, None);
                                 continue;
                             }
 
-                            let instance_buffer = self.device.create_buffer_init(
-                                &wgpu::util::BufferInitDescriptor {
-                                    label: Some("Instance Buffer"),
-                                    contents: bytemuck::cast_slice(&instances),
-                                    usage: wgpu::BufferUsages::VERTEX,
-                                },
-                            );
+                            let mut face_buffers = [const { None }; 6];
+                            let mut face_counts = [0; 6];
+
+                            for f in 0..6 {
+                                if !instances_all[f].is_empty() {
+                                    face_buffers[f] = Some(self.device.create_buffer_init(
+                                        &wgpu::util::BufferInitDescriptor {
+                                            label: Some("Instance Buffer"),
+                                            contents: bytemuck::cast_slice(&instances_all[f]),
+                                            usage: wgpu::BufferUsages::VERTEX,
+                                        },
+                                    ));
+                                    face_counts[f] = instances_all[f].len() as u32;
+                                }
+                            }
 
                             let uniform = ChunkUniform {
                                 world_pos: [
@@ -493,8 +509,8 @@ impl State {
                             self.chunks.insert(
                                 pos,
                                 Some(ChunkRenderData {
-                                    instance_buffer,
-                                    instance_count: instances.len() as u32,
+                                    face_buffers,
+                                    face_counts,
                                     bind_group,
                                 }),
                             );
@@ -593,10 +609,40 @@ impl State {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-            for chunk_data in self.chunks.values().flatten() {
-                render_pass.set_bind_group(0, &chunk_data.bind_group, &[]);
-                render_pass.set_vertex_buffer(0, chunk_data.instance_buffer.slice(..));
-                render_pass.draw_indexed(0..6, 0, 0..chunk_data.instance_count);
+            let cam_x = self.camera.eye.x;
+            let cam_y = self.camera.eye.y;
+            let cam_z = self.camera.eye.z;
+
+            for (pos, chunk_data) in self.chunks.iter() {
+                if let Some(chunk_data) = chunk_data {
+                    render_pass.set_bind_group(0, &chunk_data.bind_group, &[]);
+
+                    let min_x = (pos.x * CHUNK_SIZE as i32) as f32;
+                    let max_x = min_x + CHUNK_SIZE as f32;
+                    let min_y = (pos.y * CHUNK_SIZE as i32) as f32;
+                    let max_y = min_y + CHUNK_SIZE as f32;
+                    let min_z = (pos.z * CHUNK_SIZE as i32) as f32;
+                    let max_z = min_z + CHUNK_SIZE as f32;
+
+                    for f in 0..6 {
+                        if let Some(buffer) = &chunk_data.face_buffers[f] {
+                            let visible = match f {
+                                0 => cam_x > min_x, // PosX faces point to +X, visible if cam_x > face_x
+                                1 => cam_x < max_x, // NegX faces point to -X, visible if cam_x < face_x
+                                2 => cam_y > min_y, // PosY faces point to +Y, visible if cam_y > face_y
+                                3 => cam_y < max_y, // NegY faces point to -Y, visible if cam_y < face_y
+                                4 => cam_z > min_z, // PosZ faces point to +Z, visible if cam_z > face_z
+                                5 => cam_z < max_z, // NegZ faces point to -Z, visible if cam_z < face_z
+                                _ => true,
+                            };
+
+                            if visible {
+                                render_pass.set_vertex_buffer(0, buffer.slice(..));
+                                render_pass.draw_indexed(0..6, 0, 0..chunk_data.face_counts[f]);
+                            }
+                        }
+                    }
+                }
             }
         }
 

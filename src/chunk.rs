@@ -152,9 +152,9 @@ impl ChunkRefs {
     }
 }
 
-pub fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
+pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
     if chunk_refs.refs[13].voxels == [BlockType::Empty; CHUNK_SIZE3_U] {
-        return Vec::new();
+        return [const { Vec::new() }; 6];
     }
 
     let mut occupied_x = [0u64; CHUNK_SIZE2_U];
@@ -247,7 +247,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
         }
     }
 
-    let mut instances = Vec::new();
+    let mut instances = [const { Vec::new() }; 6];
     for (axis_index, axis_data) in data.iter().enumerate() {
         let direction = match axis_index {
             0 => FaceDirection::PosX,
@@ -289,7 +289,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
                     encoded_data |= block_type << 18;
                     encoded_data |= (h - 1) << 22; // h being zero doesn't make sense, and otherwise it won't fit in five bits
                     encoded_data |= (w - 1) << 27; // w being zero doesn't make sense, and otherwise it won't fit in five bits
-                    instances.push(Instance(encoded_data));
+                    instances[axis_index].push(Instance(encoded_data));
                 }
             }
         }

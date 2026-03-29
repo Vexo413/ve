@@ -293,7 +293,7 @@ fn test_meshing_algorithm() {
     voxels[0] = BlockType::Dirt;
     let chunk = Chunk { voxels };
     let chunk_refs = ChunkRefs {
-        refs: std::array::repeat(Arc::new(chunk)),
+        refs: [const { Arc::new(Chunk { voxels: [BlockType::Empty; CHUNK_SIZE3_U] }) }; 27],
     };
     let _ = mesh(chunk_refs);
 }
