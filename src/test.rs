@@ -1,4 +1,6 @@
-use crate::*;
+use std::sync::Arc;
+
+use crate::{chunk::*, constants::*};
 
 #[test]
 fn test_block_type_is_solid() {

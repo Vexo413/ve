@@ -1,5 +1,6 @@
 use crate::constants::*;
 use crate::position::UVec3;
+use noise::{Fbm, NoiseFn, Perlin};
 use std::{collections::HashMap, sync::Arc};
 
 #[repr(transparent)]
@@ -19,7 +20,7 @@ impl BlockType {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-struct Quad {
+pub struct Quad {
     x: u32,
     y: u32,
     w: u32,
@@ -35,7 +36,7 @@ enum FaceDirection {
     NegZ,
 }
 
-fn greedy_mesh(layer: &[u32; 32]) -> Vec<Quad> {
+pub fn greedy_mesh(layer: &[u32; 32]) -> Vec<Quad> {
     let mut quads = Vec::new();
     let mut layer = layer.to_owned();
     let mut x = 0;
@@ -75,13 +76,33 @@ pub struct Chunk {
 impl Chunk {
     pub fn new_random() -> Self {
         let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
-        for k in 0..CHUNK_SIZE3_U {
-            voxels[k] = if rand::random() {
-                BlockType::Empty
-            } else {
-                BlockType::Dirt
-            };
+        // for k in 0..CHUNK_SIZE3_U {
+        //     voxels[k] = if rand::random() {
+        //         BlockType::Empty
+        //     } else {
+        //         BlockType::Dirt
+        //     };
+        // }
+        let fbm = Fbm::<Perlin>::new(rand::random());
+        voxels[0] = BlockType::Dirt;
+        for x in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
+                let h = (fbm.get([x as f64 / 8.0, z as f64 / 8.0]) + 1.0) / 2.0 * CHUNK_SIZE as f64;
+                // dbg!(h);
+                for y in 0..CHUNK_SIZE {
+                    if y <= h as u32 {
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
+                    }
+                }
+            }
         }
+        // for x in 0..2 {
+        //     for y in 0..3 {
+        //         for z in 0..4 {
+        //             voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
+        //         }
+        //     }
+        // }
         Self { voxels }
     }
 
@@ -124,8 +145,10 @@ pub fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
             for z in 0..CHUNK_SIZE {
                 if chunk_refs.get_only_self(x, y, z).is_solid() {
                     occupied[y as usize * CHUNK_SIZE_U + z as usize] |= 1u32 << x;
-                    occupied[1 * CHUNK_SIZE2_U + z as usize * CHUNK_SIZE_U + x as usize] |= 1u32 << y;
-                    occupied[2 * CHUNK_SIZE2_U + x as usize * CHUNK_SIZE_U + y as usize] |= 1u32 << z;
+                    occupied[1 * CHUNK_SIZE2_U + z as usize * CHUNK_SIZE_U + x as usize] |=
+                        1u32 << y;
+                    occupied[2 * CHUNK_SIZE2_U + x as usize * CHUNK_SIZE_U + y as usize] |=
+                        1u32 << z;
                 }
             }
         }
@@ -135,21 +158,28 @@ pub fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
         for i in 0..CHUNK_SIZE_U {
             for j in 0..CHUNK_SIZE_U {
                 let column = occupied[axis * CHUNK_SIZE2_U + i * CHUNK_SIZE_U + j];
-                culled_mask[axis * 2 * CHUNK_SIZE2_U + i * CHUNK_SIZE_U + j] = column & !(column >> 1);
-                culled_mask[axis * 2 * CHUNK_SIZE2_U + 1 * CHUNK_SIZE2_U + i * CHUNK_SIZE_U + j] = column & !(column << 1);
+                culled_mask[axis * 2 * CHUNK_SIZE2_U + i * CHUNK_SIZE_U + j] =
+                    column & !(column >> 1);
+                culled_mask[axis * 2 * CHUNK_SIZE2_U + 1 * CHUNK_SIZE2_U + i * CHUNK_SIZE_U + j] =
+                    column & !(column << 1);
             }
         }
     }
 
     let mut data: [HashMap<u32, HashMap<u32, [u32; 32]>>; 6] = [
-        HashMap::new(), HashMap::new(), HashMap::new(),
-        HashMap::new(), HashMap::new(), HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
     ];
 
     for axis in 0..6 {
         for i in 0..CHUNK_SIZE {
             for j in 0..CHUNK_SIZE {
-                let mut column = culled_mask[axis * CHUNK_SIZE2_U + i as usize * CHUNK_SIZE_U + j as usize];
+                let mut column =
+                    culled_mask[axis * CHUNK_SIZE2_U + i as usize * CHUNK_SIZE_U + j as usize];
                 while column != 0 {
                     let k = column.trailing_zeros();
                     column &= column - 1;
@@ -199,13 +229,22 @@ pub fn mesh(chunk_refs: ChunkRefs) -> Vec<Instance> {
                         FaceDirection::PosY | FaceDirection::NegY => UVec3::new(y, *layer_index, x),
                         FaceDirection::PosZ | FaceDirection::NegZ => UVec3::new(x, y, *layer_index),
                     };
+                    // Unpack data
+                    // WWWWWHHHHHTTTTFFFZZZZZYYYYYXXXXX
+                    // X: 0-4 (5 bits)
+                    // Y: 5-9 (5 bits)
+                    // Z: 10-14 (5 bits)
+                    // F: 15-17 (3 bits)
+                    // T: 18-21 (4 bits)
+                    // H: 22-26 (5 bits)
+                    // W: 27-31 (5 bits)
                     encoded_data |= pos.x;
                     encoded_data |= pos.y << 5;
                     encoded_data |= pos.z << 10;
                     encoded_data |= (axis_index as u32) << 15;
                     encoded_data |= block_type << 18;
-                    encoded_data |= h << 22;
-                    encoded_data |= w << 27;
+                    encoded_data |= (h - 1) << 22; // h being zero doesn't make sense, and otherwise it won't fit in five bits
+                    encoded_data |= (w - 1) << 27; // w being zero doesn't make sense, and otherwise it won't fit in five bits
                     instances.push(Instance(encoded_data));
                 }
             }

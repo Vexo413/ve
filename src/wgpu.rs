@@ -1,6 +1,6 @@
 use crate::{
-    chunk::{Instance, mesh},
-    constants::{CHUNK_SIZE, CHUNK_SIZE_U, CHUNK_SIZE2_U},
+    chunk::mesh,
+    constants::{CHUNK_SIZE, RENDER_DISTANCE},
     position::IVec3,
     world::World,
 };
@@ -65,12 +65,15 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 struct CameraController {
     speed: f32,
     sensitivity: f32,
+    is_down_pressed: bool,
+    is_up_pressed: bool,
     is_forward_pressed: bool,
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
     yaw: f32,
     pitch: f32,
+    cursor_locked: bool,
 }
 
 impl CameraController {
@@ -78,12 +81,15 @@ impl CameraController {
         Self {
             speed,
             sensitivity,
+            is_down_pressed: false,
+            is_up_pressed: false,
             is_forward_pressed: false,
             is_backward_pressed: false,
             is_left_pressed: false,
             is_right_pressed: false,
             yaw: -90.0,
             pitch: 0.0,
+            cursor_locked: false,
         }
     }
 
@@ -100,6 +106,14 @@ impl CameraController {
             } => {
                 let is_pressed = *state == winit::event::ElementState::Pressed;
                 match key {
+                    winit::keyboard::KeyCode::ShiftLeft => {
+                        self.is_down_pressed = is_pressed;
+                        true
+                    }
+                    winit::keyboard::KeyCode::Space => {
+                        self.is_up_pressed = is_pressed;
+                        true
+                    }
                     winit::keyboard::KeyCode::KeyW | winit::keyboard::KeyCode::ArrowUp => {
                         self.is_forward_pressed = is_pressed;
                         true
@@ -124,8 +138,10 @@ impl CameraController {
     }
 
     fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
-        self.yaw += mouse_dx as f32 * self.sensitivity;
-        self.pitch -= mouse_dy as f32 * self.sensitivity;
+        if self.cursor_locked {
+            self.yaw += mouse_dx as f32 * self.sensitivity;
+            self.pitch -= mouse_dy as f32 * self.sensitivity;
+        }
 
         if self.pitch > 89.0 {
             self.pitch = 89.0;
@@ -148,6 +164,14 @@ impl CameraController {
 
         let right = forward.cross(camera.up).normalize();
 
+        if self.is_down_pressed {
+            camera.eye.y -= self.speed;
+            camera.target.y -= self.speed;
+        }
+        if self.is_up_pressed {
+            camera.eye.y += self.speed;
+            camera.target.y += self.speed;
+        }
         if self.is_forward_pressed {
             camera.eye += forward * self.speed;
             camera.target += forward * self.speed;
@@ -240,19 +264,20 @@ impl State {
         let cap = surface.get_capabilities(&adapter);
         let surface_format = cap.formats[0];
 
-        let chunk_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Chunk Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let chunk_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Chunk Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let camera = Camera {
             eye: (-10.0, -10.0, -10.0).into(),
@@ -299,7 +324,10 @@ impl State {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Voxel Pipeline Layout"),
-            bind_group_layouts: &[Some(&chunk_bind_group_layout), Some(&camera_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&chunk_bind_group_layout),
+                Some(&camera_bind_group_layout),
+            ],
             immediate_size: 0,
         });
 
@@ -360,7 +388,7 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let mut world = World::new(2);
+        let mut world = World::new(RENDER_DISTANCE);
         world.update_load_area(IVec3::new(0, 0, 0));
 
         let state = State {
@@ -402,7 +430,8 @@ impl State {
         self.world.update_load_area(camera_pos);
 
         // Remove chunks that are no longer in the world
-        self.chunks.retain(|pos, _| self.world.chunks.contains_key(pos));
+        self.chunks
+            .retain(|pos, _| self.world.chunks.contains_key(pos));
 
         // Add new chunks
         for (&pos, _) in &self.world.chunks {
@@ -413,13 +442,13 @@ impl State {
                         continue;
                     }
 
-                    let instance_buffer = self.device.create_buffer_init(
-                        &wgpu::util::BufferInitDescriptor {
-                            label: Some("Instance Buffer"),
-                            contents: bytemuck::cast_slice(&instances),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        },
-                    );
+                    let instance_buffer =
+                        self.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Instance Buffer"),
+                                contents: bytemuck::cast_slice(&instances),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            });
 
                     let uniform = ChunkUniform {
                         world_pos: [
@@ -429,13 +458,13 @@ impl State {
                         ],
                         _padding: 0.0,
                     };
-                    let uniform_buffer = self.device.create_buffer_init(
-                        &wgpu::util::BufferInitDescriptor {
-                            label: Some("Chunk Uniform Buffer"),
-                            contents: bytemuck::cast_slice(&[uniform]),
-                            usage: wgpu::BufferUsages::UNIFORM,
-                        },
-                    );
+                    let uniform_buffer =
+                        self.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Chunk Uniform Buffer"),
+                                contents: bytemuck::cast_slice(&[uniform]),
+                                usage: wgpu::BufferUsages::UNIFORM,
+                            });
 
                     let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("Chunk Bind Group"),
@@ -446,11 +475,14 @@ impl State {
                         }],
                     });
 
-                    self.chunks.insert(pos, ChunkRenderData {
-                        instance_buffer,
-                        instance_count: instances.len() as u32,
-                        bind_group,
-                    });
+                    self.chunks.insert(
+                        pos,
+                        ChunkRenderData {
+                            instance_buffer,
+                            instance_count: instances.len() as u32,
+                            bind_group,
+                        },
+                    );
                 }
             }
         }
@@ -590,16 +622,31 @@ impl ApplicationHandler for App {
                 button: winit::event::MouseButton::Left,
                 ..
             } => {
-                let _ = state.window.set_cursor_grab(
-                    if button_state == winit::event::ElementState::Pressed {
-                        winit::window::CursorGrabMode::Locked
-                    } else {
-                        winit::window::CursorGrabMode::None
+                if button_state == winit::event::ElementState::Pressed {
+                    let _ = state
+                        .window
+                        .set_cursor_grab(winit::window::CursorGrabMode::Locked);
+                    state.window.set_cursor_visible(false);
+                    state.camera_controller.cursor_locked = true;
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        state: key_state,
+                        physical_key:
+                            winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape),
+                        ..
                     },
-                );
-                state
-                    .window
-                    .set_cursor_visible(button_state != winit::event::ElementState::Pressed);
+                ..
+            } => {
+                if key_state == winit::event::ElementState::Pressed {
+                    let _ = state
+                        .window
+                        .set_cursor_grab(winit::window::CursorGrabMode::None);
+                    state.window.set_cursor_visible(true);
+                    state.camera_controller.cursor_locked = false;
+                }
             }
             WindowEvent::CloseRequested => {
                 event_loop.exit();

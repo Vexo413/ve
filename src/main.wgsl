@@ -47,8 +47,8 @@ fn vs_main(
     let z = f32((data >> 10u) & 0x1Fu);
     let face = (data >> 15u) & 0x7u;
     let block_type = (data >> 18u) & 0xFu;
-    let h = f32((data >> 22u) & 0x1Fu);
-    let w = f32((data >> 27u) & 0x1Fu);
+    let h = f32((data >> 22u) & 0x1Fu) + 1; // Undo offset in `mesh` function
+    let w = f32((data >> 27u) & 0x1Fu) + 1; // Undo offset in `mesh` function
 
     var pos: vec3<f32>;
     let quad_pos = vec2<f32>(
@@ -98,7 +98,7 @@ fn vs_main(
     );
     out.color = colors[face];
     if block_type == 1u { // Dirt
-        out.color           *= 0.5;
+        out.color                                         *= 0.5;
     }
 
     return out;
