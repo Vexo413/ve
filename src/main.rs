@@ -1,11 +1,11 @@
 mod chunk;
 mod constants;
 mod position;
+mod render;
 #[cfg(test)]
-mod test;
-mod wgpu;
+mod tests;
 mod world;
 
 fn main() {
-    wgpu::start();
+    render::start();
 }

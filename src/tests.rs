@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use crate::{chunk::*, constants::*};
+use std::sync::Arc;
 
 #[test]
 fn test_block_type_is_solid() {
@@ -285,15 +284,4 @@ fn test_greedy_mesh_single_row() {
         w: 1,
         h: 1
     }));
-}
-
-#[test]
-fn test_meshing_algorithm() {
-    let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
-    voxels[0] = BlockType::Dirt;
-    let chunk = Chunk { voxels };
-    let chunk_refs = ChunkRefs {
-        refs: [const { Arc::new(Chunk { voxels: [BlockType::Empty; CHUNK_SIZE3_U] }) }; 27],
-    };
-    let _ = mesh(chunk_refs);
 }

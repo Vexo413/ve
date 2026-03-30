@@ -1,7 +1,6 @@
 use crate::position::UVec3;
 use crate::{constants::*, position::IVec3};
 use ahash::AHashMap;
-use noise::{Fbm, NoiseFn, Perlin};
 use std::sync::Arc;
 
 #[repr(transparent)]
@@ -75,46 +74,19 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn empty() -> Self {
-        let voxels = [BlockType::Empty; CHUNK_SIZE3_U];
-        Self { voxels }
-    }
-    pub fn full(block_type: BlockType) -> Self {
-        let voxels = [block_type; CHUNK_SIZE3_U];
-        Self { voxels }
-    }
-    pub fn new_terain(noise: &Fbm<Perlin>, position: IVec3) -> Self {
+    pub fn new_terrain(position: IVec3, heights: &[i32; CHUNK_SIZE2_U]) -> Self {
         let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
-        // for k in 0..CHUNK_SIZE3_U {
-        //     voxels[k] = if rand::random() {
-        //         BlockType::Empty
-        //     } else {
-        //         BlockType::Dirt
-        //     };
-        // }
-        voxels[0] = BlockType::Dirt;
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
-                let h = (noise.get([
-                    (position.x as f64 * CHUNK_SIZE as f64 + x as f64) / 50.0,
-                    (position.z as f64 * CHUNK_SIZE as f64 + z as f64) / 50.0,
-                ]) + 1.0)
-                    / 2.0
-                    * CHUNK_SIZE as f64;
+                let h = heights[x as usize * CHUNK_SIZE_U + z as usize];
                 for y in 0..CHUNK_SIZE {
-                    if y <= h as u32 {
+                    let global_y = position.y * CHUNK_SIZE as i32 + y as i32;
+                    if global_y <= h {
                         voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
                     }
                 }
             }
         }
-        // for x in 0..2 {
-        //     for y in 0..3 {
-        //         for z in 0..4 {
-        //             voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
-        //         }
-        //     }
-        // }
         Self { voxels }
     }
 

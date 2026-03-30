@@ -1,7 +1,8 @@
 use ahash::AHashMap;
-use noise::{Fbm, Perlin};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::chunk::{BlockType, Chunk, ChunkRefs};
+use crate::constants::*;
 use crate::position::IVec3;
 use std::sync::Arc;
 
@@ -16,29 +17,51 @@ impl World {
         Self {
             chunks: AHashMap::new(),
             render_distance,
-            fbm: Fbm::<Perlin>::new(rand::random()),
+            fbm: Fbm::<Perlin>::new(rand::random()).set_octaves(9),
         }
     }
 
     pub fn update_load_area(&mut self, center: IVec3) {
+        let render_distance = self.render_distance + 1; // Rendering chunks requires neigboring, adding one makes sure the chunks exist
         // Unload chunks outside render distance
         self.chunks.retain(|pos, _| {
-            (pos.x - center.x).abs() <= self.render_distance
-                && (pos.y - center.y).abs() <= self.render_distance
-                && (pos.z - center.z).abs() <= self.render_distance
+            (pos.x - center.x).abs() <= render_distance
+                && (pos.y - center.y).abs() <= render_distance
+                && (pos.z - center.z).abs() <= render_distance
         });
 
         // Load new chunks within render distance
-        for x in -self.render_distance..=self.render_distance {
-            for y in -self.render_distance..=self.render_distance {
-                for z in -self.render_distance..=self.render_distance {
+        for x in -render_distance..=render_distance {
+            for z in -render_distance..=render_distance {
+                // Calculate height map for this (x, z) column of chunks
+                let mut heights = [0i32; CHUNK_SIZE2_U];
+                for lx in 0..CHUNK_SIZE {
+                    for lz in 0..CHUNK_SIZE {
+                        let noise_x: f64 = (center.x + x) as f64 * CHUNK_SIZE as f64 + lx as f64;
+                        let noise_z: f64 = (center.z + z) as f64 * CHUNK_SIZE as f64 + lz as f64;
+                        // let h =
+                        //     (self.fbm.get([noise_x / 128.0, noise_z / 128.0]) - 0.5).powi(4) * 64.0;
+                        let mut h = (noise_x / 64.0).sin() * (noise_z / 64.0).cos() * 64.0;
+                        if rand::random() {
+                            h += 1.0;
+                        }
+
+                        // dbg!(h);
+                        heights[lx as usize * CHUNK_SIZE_U + lz as usize] = h as i32;
+                    }
+                }
+
+                for y in -render_distance..=render_distance {
                     let pos = IVec3::new(center.x + x, center.y + y, center.z + z);
-                    let chunk = match pos.y {
-                        ..0 => Chunk::full(BlockType::Dirt),
-                        0 => Chunk::new_terain(&self.fbm, pos),
-                        _ => Chunk::empty(),
-                    };
-                    self.chunks.entry(pos).or_insert_with(|| Arc::new(chunk));
+                    if !self.chunks.contains_key(&pos) {
+                        let chunk = match pos.y {
+                            // ..-3 => Chunk::full(BlockType::Dirt),
+                            -3..=1 => Chunk::new_terrain(pos, &heights),
+                            _ => Chunk::new_terrain(pos, &heights),
+                            // _ => Chunk::empty(),
+                        };
+                        self.chunks.insert(pos, Arc::new(chunk));
+                    }
                 }
             }
         }

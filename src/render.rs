@@ -1,5 +1,5 @@
 use crate::{
-    chunk::mesh,
+    chunk::{Instance, mesh},
     constants::{CHUNK_SIZE, RENDER_DISTANCE},
     position::IVec3,
     world::World,
@@ -395,7 +395,7 @@ impl State {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let mut world = World::new(RENDER_DISTANCE + 1);
+        let mut world = World::new(RENDER_DISTANCE);
         world.update_load_area(IVec3::new(0, 0, 0));
 
         let state = State {
@@ -450,16 +450,9 @@ impl State {
                     let pos = camera_pos + IVec3::new(x, y, z);
                     if !self.chunks.contains_key(&pos) {
                         if let Some(refs) = self.world.get_chunk_refs(pos) {
-                            let instances_all = mesh(refs);
-                            let mut has_any = false;
-                            for f in 0..6 {
-                                if !instances_all[f].is_empty() {
-                                    has_any = true;
-                                    break;
-                                }
-                            }
+                            let instances = mesh(refs);
 
-                            if !has_any {
+                            if instances.iter().all(|v| v.is_empty()) {
                                 self.chunks.insert(pos, None);
                                 continue;
                             }
@@ -468,15 +461,15 @@ impl State {
                             let mut face_counts = [0; 6];
 
                             for f in 0..6 {
-                                if !instances_all[f].is_empty() {
+                                if !instances[f].is_empty() {
                                     face_buffers[f] = Some(self.device.create_buffer_init(
                                         &wgpu::util::BufferInitDescriptor {
                                             label: Some("Instance Buffer"),
-                                            contents: bytemuck::cast_slice(&instances_all[f]),
+                                            contents: bytemuck::cast_slice(&instances[f]),
                                             usage: wgpu::BufferUsages::VERTEX,
                                         },
                                     ));
-                                    face_counts[f] = instances_all[f].len() as u32;
+                                    face_counts[f] = instances[f].len() as u32;
                                 }
                             }
 
@@ -488,13 +481,13 @@ impl State {
                                 ],
                                 _padding: 0.0,
                             };
-                            let uniform_buffer = self.device.create_buffer_init(
-                                &wgpu::util::BufferInitDescriptor {
-                                    label: Some("Chunk Uniform Buffer"),
-                                    contents: bytemuck::cast_slice(&[uniform]),
-                                    usage: wgpu::BufferUsages::UNIFORM,
-                                },
-                            );
+                            let uniform_buffer =
+                                self.device
+                                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                        label: Some("Chunk Uniform Buffer"),
+                                        contents: bytemuck::cast_slice(&[uniform]),
+                                        usage: wgpu::BufferUsages::UNIFORM,
+                                    });
 
                             let bind_group =
                                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -582,7 +575,7 @@ impl State {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
+                label: Some("Voxel Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &texture_view,
                     depth_slice: None,
@@ -613,6 +606,7 @@ impl State {
             let cam_y = self.camera.eye.y;
             let cam_z = self.camera.eye.z;
 
+            dbg!("Drawing everything", cam_x);
             for (pos, chunk_data) in self.chunks.iter() {
                 if let Some(chunk_data) = chunk_data {
                     render_pass.set_bind_group(0, &chunk_data.bind_group, &[]);
@@ -637,6 +631,7 @@ impl State {
                             };
 
                             if visible {
+                                // println!("We are drawing");
                                 render_pass.set_vertex_buffer(0, buffer.slice(..));
                                 render_pass.draw_indexed(0..6, 0, 0..chunk_data.face_counts[f]);
                             }
