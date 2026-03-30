@@ -1,5 +1,5 @@
 use ahash::AHashMap;
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 
 use crate::chunk::{BlockType, Chunk, ChunkRefs};
 use crate::constants::*;
@@ -9,15 +9,22 @@ use std::sync::Arc;
 pub struct World {
     pub chunks: AHashMap<IVec3, Arc<Chunk>>,
     pub render_distance: i32,
-    pub fbm: Fbm<Perlin>,
+    pub noise: FastNoiseLite,
 }
 
 impl World {
     pub fn new(render_distance: i32) -> Self {
+        let mut noise = FastNoiseLite::new();
+        noise.set_noise_type(Some(NoiseType::OpenSimplex2));
+        noise.set_fractal_type(Some(FractalType::Ridged));
+        noise.set_fractal_octaves(Some(3));
+        noise.set_fractal_lacunarity(Some(2.0));
+        noise.set_fractal_gain(Some(0.5));
+
         Self {
             chunks: AHashMap::new(),
             render_distance,
-            fbm: Fbm::<Perlin>::new(rand::random()).set_octaves(9),
+            noise,
         }
     }
 
@@ -37,14 +44,11 @@ impl World {
                 let mut heights = [0i32; CHUNK_SIZE2_U];
                 for lx in 0..CHUNK_SIZE {
                     for lz in 0..CHUNK_SIZE {
-                        let noise_x: f64 = (center.x + x) as f64 * CHUNK_SIZE as f64 + lx as f64;
-                        let noise_z: f64 = (center.z + z) as f64 * CHUNK_SIZE as f64 + lz as f64;
+                        let noise_x = (center.x + x) as f32 * CHUNK_SIZE as f32 + lx as f32;
+                        let noise_z = (center.z + z) as f32 * CHUNK_SIZE as f32 + lz as f32;
                         // let h =
                         //     (self.fbm.get([noise_x / 128.0, noise_z / 128.0]) - 0.5).powi(4) * 64.0;
-                        let mut h = (noise_x / 64.0).sin() * (noise_z / 64.0).cos() * 64.0;
-                        if rand::random() {
-                            h += 1.0;
-                        }
+                        let h = self.noise.get_noise_2d(noise_x, noise_z) * 16.0;
 
                         // dbg!(h);
                         heights[lx as usize * CHUNK_SIZE_U + lz as usize] = h as i32;

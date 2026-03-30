@@ -9,7 +9,8 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) face: u32,
 };
 
 struct ChunkUniform {
@@ -24,6 +25,10 @@ struct CameraUniform {
 var<uniform> chunk: ChunkUniform;
 @group(1) @binding(0)
 var<uniform> camera: CameraUniform;
+@group(2) @binding(0)
+var t_diffuse: texture_2d<f32>;
+@group(2) @binding(1)
+var s_diffuse: sampler;
 
 @vertex
 fn vs_main(
@@ -47,8 +52,8 @@ fn vs_main(
     let z = f32((data >> 10u) & 0x1Fu);
     let face = (data >> 15u) & 0x7u;
     let block_type = (data >> 18u) & 0xFu;
-    let h = f32((data >> 22u) & 0x1Fu) + 1; // Undo offset in `mesh` function
-    let w = f32((data >> 27u) & 0x1Fu) + 1; // Undo offset in `mesh` function
+    let h = f32((data >> 22u) & 0x1Fu) + 1.0; // Undo offset in `mesh` function
+    let w = f32((data >> 27u) & 0x1Fu) + 1.0; // Undo offset in `mesh` function
 
     var pos: vec3<f32>;
     let quad_pos = vec2<f32>(
@@ -86,25 +91,25 @@ fn vs_main(
     var out: VertexOutput;
     let world_pos = pos + chunk.world_pos;
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
-    
-    // Vary color by face and block type
-    let colors = array<vec3<f32>, 6>(
-        vec3<f32>(1.0, 0.0, 0.0),
-        vec3<f32>(1.0, 1.0, 0.0),
-        vec3<f32>(0.0, 1.0, 0.0),
-        vec3<f32>(0.0, 1.0, 1.0),
-        vec3<f32>(0.0, 0.0, 1.0),
-        vec3<f32>(1.0, 0.0, 1.0)
-    );
-    out.color = colors[face];
-    if block_type == 1u { // Dirt
-        out.color                                           *= 0.5;
-    }
+    out.uv = scaled_pos;
+    out.face = face;
 
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    let color = textureSample(t_diffuse, s_diffuse, in.uv);
+    
+    // Apply some shading based on face
+    let face_shading = array<f32, 6>(
+        0.8, // PosX
+        0.8, // NegX
+        1.0, // PosY
+        0.5, // NegY
+        0.7, // PosZ
+        0.7  // NegZ
+    );
+    
+    return vec4<f32>(color.rgb * face_shading[in.face], 1.0);
 }
