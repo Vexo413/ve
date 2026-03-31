@@ -516,7 +516,7 @@ impl State {
             chunks: AHashMap::new(),
             world,
             camera,
-            camera_controller: CameraController::new(2.0, 0.1),
+            camera_controller: CameraController::new(0.1, 0.1),
             camera_uniform,
             camera_buffer,
             camera_bind_group,
@@ -825,6 +825,34 @@ impl ApplicationHandler for App {
                         .set_cursor_grab(winit::window::CursorGrabMode::None);
                     state.window.set_cursor_visible(true);
                     state.camera_controller.cursor_locked = false;
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        state: key_state,
+                        physical_key:
+                            winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Digit1),
+                        ..
+                    },
+                ..
+            } => {
+                if key_state == winit::event::ElementState::Pressed {
+                    state.camera_controller.speed = 0.1;
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        state: key_state,
+                        physical_key:
+                            winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Digit2),
+                        ..
+                    },
+                ..
+            } => {
+                if key_state == winit::event::ElementState::Pressed {
+                    state.camera_controller.speed = 3.0;
                 }
             }
             WindowEvent::CloseRequested => {

@@ -4,8 +4,8 @@ use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use crate::chunk::{Chunk, ChunkRefs};
 use crate::constants::*;
 use crate::position::IVec3;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 pub enum WorldRequest {
@@ -13,9 +13,7 @@ pub enum WorldRequest {
 }
 
 pub enum WorldResponse {
-    ChunksGenerated {
-        chunks: Vec<(IVec3, Arc<Chunk>)>,
-    },
+    ChunksGenerated { chunks: Vec<(IVec3, Arc<Chunk>)> },
 }
 
 pub struct World {
@@ -47,7 +45,7 @@ impl World {
                             for lz in 0..CHUNK_SIZE {
                                 let noise_x = x as f32 * CHUNK_SIZE as f32 + lx as f32;
                                 let noise_z = z as f32 * CHUNK_SIZE as f32 + lz as f32;
-                                let h = noise.get_noise_2d(noise_x, noise_z) * 16.0;
+                                let h = noise.get_noise_2d(noise_x, noise_z).powi(2) * 32.0;
                                 heights[lx as usize * CHUNK_SIZE_U + lz as usize] = h as i32;
                             }
                         }

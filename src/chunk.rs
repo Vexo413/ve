@@ -11,6 +11,7 @@ pub struct Instance(pub u32);
 pub enum BlockType {
     Empty,
     Dirt,
+    Grass,
 }
 
 impl BlockType {
@@ -81,8 +82,10 @@ impl Chunk {
                 let h = heights[x as usize * CHUNK_SIZE_U + z as usize];
                 for y in 0..CHUNK_SIZE {
                     let global_y = position.y * CHUNK_SIZE as i32 + y as i32;
-                    if global_y <= h {
+                    if global_y < h {
                         voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
+                    } else if global_y == h {
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Grass;
                     }
                 }
             }
@@ -207,7 +210,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                     };
 
                     let current_voxel = chunk_refs.get_only_self(x, y, z);
-                    let block_hash = current_voxel as u32;
+                    let block_hash = current_voxel as u32 - 1; // No nead for empty
                     let layer_data = data[axis]
                         .entry(block_hash)
                         .or_default()
@@ -259,8 +262,8 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                     encoded_data |= pos.z << 10;
                     encoded_data |= (axis_index as u32) << 15;
                     encoded_data |= block_type << 18;
-                    encoded_data |= (h - 1) << 22; // h being zero doesn't make sense, and otherwise it won't fit in five bits
-                    encoded_data |= (w - 1) << 27; // w being zero doesn't make sense, and otherwise it won't fit in five bits
+                    encoded_data |= (h - 1) << 22; // it won't fit in five bits
+                    encoded_data |= (w - 1) << 27; // it won't fit in five bits
                     instances[axis_index].push(Instance(encoded_data));
                 }
             }

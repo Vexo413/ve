@@ -11,6 +11,7 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) face: u32,
+    @location(2) @interpolate(flat) block_type: u32,
 };
 
 struct ChunkUniform {
@@ -93,13 +94,28 @@ fn vs_main(
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.uv = scaled_pos;
     out.face = face;
+    out.block_type = block_type;
 
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(t_diffuse, s_diffuse, in.uv);
+    let block_index = in.block_type;
+    let tex_dims = vec2<f32>(textureDimensions(t_diffuse));
+    
+    // Assume 16x16 tiles for scalability
+    let tile_size = 16.0;
+    let tiles_per_row = u32(tex_dims.x / tile_size);
+
+    let tile_x = f32(block_index % tiles_per_row);
+    let tile_y = f32(block_index / tiles_per_row);
+    
+    // Use fract for repeating textures in greedy meshing
+    let tile_uv = fract(in.uv);
+    let atlas_uv = (vec2<f32>(tile_x, tile_y) + tile_uv) * tile_size / tex_dims;
+
+    let color = textureSample(t_diffuse, s_diffuse, atlas_uv);
     
     // Apply some shading based on face
     let face_shading = array<f32, 6>(
@@ -110,6 +126,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         0.7, // PosZ
         0.7  // NegZ
     );
-    
+
     return vec4<f32>(color.rgb * face_shading[in.face], 1.0);
 }
