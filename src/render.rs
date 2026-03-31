@@ -551,71 +551,84 @@ impl State {
             .retain(|pos, _| self.world.chunks.contains_key(pos));
 
         // Add new chunks
-        for x in -RENDER_DISTANCE..=RENDER_DISTANCE {
-            for y in -RENDER_DISTANCE..=RENDER_DISTANCE {
-                for z in -RENDER_DISTANCE..=RENDER_DISTANCE {
+        let range = -RENDER_DISTANCE..=RENDER_DISTANCE;
+
+        for x in range.clone() {
+            for y in range.clone() {
+                for z in range.clone() {
                     let pos = camera_pos + IVec3::new(x, y, z);
-                    if !self.chunks.contains_key(&pos) {
-                        if let Some(refs) = self.world.get_chunk_refs(pos) {
-                            let instances = mesh(refs);
 
-                            if instances.iter().all(|v| v.is_empty()) {
-                                self.chunks.insert(pos, None);
-                                continue;
-                            }
+                    // Skip chunks we already have
+                    if self.chunks.contains_key(&pos) {
+                        continue;
+                    }
 
-                            let mut face_buffers = [const { None }; 6];
-                            let mut face_counts = [0; 6];
+                    // Skip if no chunk refs
+                    let refs = match self.world.get_chunk_refs(pos) {
+                        Some(r) => r,
+                        None => continue,
+                    };
 
-                            for f in 0..6 {
-                                if !instances[f].is_empty() {
-                                    face_buffers[f] = Some(self.device.create_buffer_init(
-                                        &wgpu::util::BufferInitDescriptor {
-                                            label: Some("Instance Buffer"),
-                                            contents: bytemuck::cast_slice(&instances[f]),
-                                            usage: wgpu::BufferUsages::VERTEX,
-                                        },
-                                    ));
-                                    face_counts[f] = instances[f].len() as u32;
-                                }
-                            }
+                    let instances = mesh(refs);
 
-                            let uniform = ChunkUniform {
-                                world_pos: [
-                                    (pos.x * CHUNK_SIZE as i32) as f32,
-                                    (pos.y * CHUNK_SIZE as i32) as f32,
-                                    (pos.z * CHUNK_SIZE as i32) as f32,
-                                ],
-                                _padding: 0.0,
-                            };
-                            let uniform_buffer =
-                                self.device
-                                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                        label: Some("Chunk Uniform Buffer"),
-                                        contents: bytemuck::cast_slice(&[uniform]),
-                                        usage: wgpu::BufferUsages::UNIFORM,
-                                    });
+                    // Skip empty chunks
+                    if instances.iter().all(|v| v.is_empty()) {
+                        self.chunks.insert(pos, None);
+                        continue;
+                    }
 
-                            let bind_group =
-                                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                                    label: Some("Chunk Bind Group"),
-                                    layout: &self.chunk_bind_group_layout,
-                                    entries: &[wgpu::BindGroupEntry {
-                                        binding: 0,
-                                        resource: uniform_buffer.as_entire_binding(),
-                                    }],
-                                });
+                    let mut face_buffers: [Option<wgpu::Buffer>; 6] = Default::default();
+                    let mut face_counts: [u32; 6] = [0; 6];
 
-                            self.chunks.insert(
-                                pos,
-                                Some(ChunkRenderData {
-                                    face_buffers,
-                                    face_counts,
-                                    bind_group,
-                                }),
-                            );
+                    for (f, inst) in instances.iter().enumerate() {
+                        if !inst.is_empty() {
+                            face_buffers[f] = Some(self.device.create_buffer_init(
+                                &wgpu::util::BufferInitDescriptor {
+                                    label: Some("Instance Buffer"),
+                                    contents: bytemuck::cast_slice(inst),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                },
+                            ));
+                            face_counts[f] = inst.len() as u32;
                         }
                     }
+
+                    let pos_world = [
+                        (pos.x * CHUNK_SIZE as i32) as f32,
+                        (pos.y * CHUNK_SIZE as i32) as f32,
+                        (pos.z * CHUNK_SIZE as i32) as f32,
+                    ];
+
+                    let uniform = ChunkUniform {
+                        world_pos: pos_world,
+                        _padding: 0.0,
+                    };
+
+                    let uniform_buffer =
+                        self.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Chunk Uniform Buffer"),
+                                contents: bytemuck::cast_slice(&[uniform]),
+                                usage: wgpu::BufferUsages::UNIFORM,
+                            });
+
+                    let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Chunk Bind Group"),
+                        layout: &self.chunk_bind_group_layout,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: uniform_buffer.as_entire_binding(),
+                        }],
+                    });
+
+                    self.chunks.insert(
+                        pos,
+                        Some(ChunkRenderData {
+                            face_buffers,
+                            face_counts,
+                            bind_group,
+                        }),
+                    );
                 }
             }
         }
