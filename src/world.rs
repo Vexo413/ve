@@ -33,7 +33,7 @@ impl World {
             let mut noise = FastNoiseLite::new();
             noise.set_noise_type(Some(NoiseType::OpenSimplex2));
             noise.set_fractal_type(Some(FractalType::Ridged));
-            noise.set_fractal_octaves(Some(3));
+            noise.set_fractal_octaves(Some(9));
             noise.set_fractal_lacunarity(Some(2.0));
             noise.set_fractal_gain(Some(0.5));
 
@@ -45,7 +45,8 @@ impl World {
                             for lz in 0..CHUNK_SIZE {
                                 let noise_x = x as f32 * CHUNK_SIZE as f32 + lx as f32;
                                 let noise_z = z as f32 * CHUNK_SIZE as f32 + lz as f32;
-                                let h = noise.get_noise_2d(noise_x, noise_z).powi(2) * 32.0;
+                                let h =
+                                    noise.get_noise_2d(noise_x / 4.0, noise_z / 4.0).powi(2) * 64.0;
                                 heights[lx as usize * CHUNK_SIZE_U + lz as usize] = h as i32;
                             }
                         }
@@ -75,6 +76,7 @@ impl World {
     }
 
     pub fn process_responses(&mut self) {
+        // Continue proccessing until none left
         while let Ok(response) = self.response_rx.try_recv() {
             match response {
                 WorldResponse::ChunksGenerated { chunks } => {
