@@ -1,6 +1,8 @@
 use crate::position::UVec3;
 use crate::{constants::*, position::IVec3};
 use ahash::AHashMap;
+use rand::RngExt;
+use rand::rngs::ThreadRng;
 use std::sync::Arc;
 
 #[repr(transparent)]
@@ -12,6 +14,7 @@ pub enum BlockType {
     Empty,
     Dirt,
     Grass,
+    Stone,
 }
 
 impl BlockType {
@@ -75,14 +78,20 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn new_terrain(position: IVec3, heights: &[i32; CHUNK_SIZE2_U]) -> Self {
+    pub fn new_terrain(
+        position: IVec3,
+        heights: &[i32; CHUNK_SIZE2_U],
+        rng: &mut ThreadRng,
+    ) -> Self {
         let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
                 let h = heights[x as usize * CHUNK_SIZE_U + z as usize];
                 for y in 0..CHUNK_SIZE {
                     let global_y = position.y * CHUNK_SIZE as i32 + y as i32;
-                    if global_y < h {
+                    if global_y < h && global_y >= rng.random_range(12..20) {
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Stone;
+                    } else if global_y < h {
                         voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
                     } else if global_y == h {
                         voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Grass;

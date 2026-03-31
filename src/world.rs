@@ -31,6 +31,7 @@ impl World {
 
         thread::spawn(move || {
             let mut noise = FastNoiseLite::new();
+            let mut rng = rand::rng();
             noise.set_noise_type(Some(NoiseType::OpenSimplex2));
             noise.set_fractal_type(Some(FractalType::Ridged));
             noise.set_fractal_octaves(Some(9));
@@ -45,8 +46,8 @@ impl World {
                             for lz in 0..CHUNK_SIZE {
                                 let noise_x = x as f32 * CHUNK_SIZE as f32 + lx as f32;
                                 let noise_z = z as f32 * CHUNK_SIZE as f32 + lz as f32;
-                                let h =
-                                    noise.get_noise_2d(noise_x / 4.0, noise_z / 4.0).powi(2) * 64.0;
+                                let h = noise.get_noise_2d(noise_x / 8.0, noise_z / 8.0).powi(2)
+                                    * 128.0;
                                 heights[lx as usize * CHUNK_SIZE_U + lz as usize] = h as i32;
                             }
                         }
@@ -54,7 +55,7 @@ impl World {
                         let mut generated_chunks = Vec::new();
                         for y in ys {
                             let pos = IVec3::new(x, y, z);
-                            let chunk = Chunk::new_terrain(pos, &heights);
+                            let chunk = Chunk::new_terrain(pos, &heights, &mut rng);
                             generated_chunks.push((pos, Arc::new(chunk)));
                         }
 
