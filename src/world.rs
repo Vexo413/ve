@@ -82,8 +82,9 @@ impl World {
             match response {
                 WorldResponse::ChunksGenerated { chunks } => {
                     for (pos, chunk) in chunks {
-                        self.pending_chunks.remove(&pos);
-                        self.chunks.insert(pos, chunk);
+                        if self.pending_chunks.remove(&pos) {
+                            self.chunks.insert(pos, chunk);
+                        }
                     }
                 }
             }
