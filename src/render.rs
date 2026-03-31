@@ -535,6 +535,9 @@ impl State {
     }
 
     fn sync_world_to_gpu(&mut self) {
+        // Process any newly generated chunks
+        self.world.process_responses();
+
         // Update world based on camera position
         let camera_pos = IVec3::new(
             (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
