@@ -153,7 +153,7 @@ impl CameraController {
         }
     }
 
-    fn update_camera(&self, camera: &mut Camera) {
+    fn update_camera(&self, camera: &mut Camera, dt: f32) {
         use cgmath::InnerSpace;
 
         let forward = cgmath::Vector3::new(
@@ -170,28 +170,28 @@ impl CameraController {
         let right = forward.cross(camera.up).normalize();
 
         if self.is_down_pressed {
-            camera.eye.y -= self.speed;
-            camera.target.y -= self.speed;
+            camera.eye.y -= self.speed * dt;
+            camera.target.y -= self.speed * dt;
         }
         if self.is_up_pressed {
-            camera.eye.y += self.speed;
-            camera.target.y += self.speed;
+            camera.eye.y += self.speed * dt;
+            camera.target.y += self.speed * dt;
         }
         if self.is_forward_pressed {
-            camera.eye += forward * self.speed;
-            camera.target += forward * self.speed;
+            camera.eye += forward * (self.speed * dt);
+            camera.target += forward * (self.speed * dt);
         }
         if self.is_backward_pressed {
-            camera.eye -= forward * self.speed;
-            camera.target -= forward * self.speed;
+            camera.eye -= forward * (self.speed * dt);
+            camera.target -= forward * (self.speed * dt);
         }
         if self.is_right_pressed {
-            camera.eye += right * self.speed;
-            camera.target += right * self.speed;
+            camera.eye += right * (self.speed * dt);
+            camera.target += right * (self.speed * dt);
         }
         if self.is_left_pressed {
-            camera.eye -= right * self.speed;
-            camera.target -= right * self.speed;
+            camera.eye -= right * (self.speed * dt);
+            camera.target -= right * (self.speed * dt);
         }
     }
 }
@@ -221,7 +221,8 @@ struct State {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    last_frame_time: Instant,
+    fps_timer: Instant,
+    last_frame_instant: Instant,
     frame_count: u32,
     fps: u32,
     atlas_bind_group: wgpu::BindGroup,
@@ -516,11 +517,12 @@ impl State {
             chunks: AHashMap::new(),
             world,
             camera,
-            camera_controller: CameraController::new(0.1, 0.1),
+            camera_controller: CameraController::new(10.0, 0.1),
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            last_frame_time: Instant::now(),
+            fps_timer: Instant::now(),
+            last_frame_instant: Instant::now(),
             frame_count: 0,
             fps: 0,
             atlas_bind_group,
@@ -658,7 +660,9 @@ impl State {
     }
 
     fn update(&mut self) {
-        self.camera_controller.update_camera(&mut self.camera);
+        let dt = self.last_frame_instant.elapsed().as_secs_f32();
+        self.last_frame_instant = Instant::now();
+        self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -771,11 +775,11 @@ impl State {
         surface_texture.present();
 
         self.frame_count += 1;
-        let elapsed = self.last_frame_time.elapsed().as_secs_f64();
+        let elapsed = self.fps_timer.elapsed().as_secs_f64();
         if elapsed >= 1.0 {
             self.fps = self.frame_count;
             self.frame_count = 0;
-            self.last_frame_time = Instant::now();
+            self.fps_timer = Instant::now();
             self.window.set_title(&format!("ve - {} FPS", self.fps));
         }
     }
@@ -851,7 +855,7 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if key_state == winit::event::ElementState::Pressed {
-                    state.camera_controller.speed = 0.1;
+                    state.camera_controller.speed = 10.0;
                 }
             }
             WindowEvent::KeyboardInput {
@@ -865,7 +869,7 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if key_state == winit::event::ElementState::Pressed {
-                    state.camera_controller.speed = 3.0;
+                    state.camera_controller.speed = 100.0;
                 }
             }
             WindowEvent::CloseRequested => {
