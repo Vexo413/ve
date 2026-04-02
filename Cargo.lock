@@ -2697,7 +2697,6 @@ dependencies = [
 name = "ve"
 version = "0.1.0"
 dependencies = [
- "ahash",
  "bytemuck",
  "cgmath",
  "env_logger",
