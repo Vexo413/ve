@@ -1,7 +1,8 @@
 use hashbrown::HashMap;
 
-use crate::position::UVec3;
+use crate::position::{Ray3, UVec3, Vec3};
 use crate::{constants::*, position::IVec3};
+use std::ops::Neg;
 use std::sync::Arc;
 
 #[repr(transparent)]
@@ -274,12 +275,45 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
     }
     instances
 }
-// fn raycast(ray: IVec3, origin: IVec3, chunk_refs: ChunkRefs) -> IVec3 {
-//     let mut current = origin;
+// fn raycast(ray: Ray3, chunk_refs: ChunkRefs) -> IVec3 {
+//     let mut current = IVec3::new(
+//         ray.origin.x as i32,
+//         ray.origin.y as i32,
+//         ray.origin.z as i32,
+//     );
+//     let step = IVec3::new(
+//         ray.direction.x as i32,
+//         ray.direction.y as i32,
+//         ray.direction.z as i32,
+//     );
 //     loop {
 //         if !chunk_refs.get(current).is_solid() {
 //             return current;
 //         }
-//         let select = IVec3::new(-pos.x as f32), y, z)
+//         let select = Vec3::new(
+//             0.5 + 0.5 * (-ray.direction.x).signum(),
+//             0.5 + 0.5 * (-ray.direction.y).signum(),
+//             0.5 + 0.5 * (-ray.direction.z).signum(),
+//         );
+//         let planes = Vec3::new(current.x as f32, current.y as f32, current.z as f32) + select;
+//         let t = planes - ray.origin;
+//         let t = Vec3::new(
+//             t.x * -ray.direction.x,
+//             t.y * -ray.direction.y,
+//             t.z * -ray.direction.z,
+//         );
+//         if t.x < t.y {
+//             if t.x < t.z {
+//                 current.x += step.x;
+//             } else {
+//                 current.z += step.z;
+//             }
+//         } else {
+//             if t.y < t.z {
+//                 current.y += step.y;
+//             } else {
+//                 current.z += step.z;
+//             }
+//         }
 //     }
 // }
