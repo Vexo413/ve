@@ -2702,6 +2702,7 @@ dependencies = [
  "cgmath",
  "env_logger",
  "fastnoise-lite",
+ "hashbrown 0.16.1",
  "image",
  "pollster",
  "rand 0.10.0",

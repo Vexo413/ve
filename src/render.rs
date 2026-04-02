@@ -4,15 +4,13 @@ use crate::{
     position::IVec3,
     world::World,
 };
-use std::{sync::Arc, time::Instant};
-
-use ahash::AHashMap;
 use cgmath::Vector3;
+use hashbrown::HashMap;
 use image::GenericImageView;
+use std::{sync::Arc, time::Instant};
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
-    dpi::Position,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle},
     window::{Window, WindowId},
@@ -227,7 +225,7 @@ struct State {
     instance_buffer: Option<wgpu::Buffer>,
     total_instances: u32,
 
-    chunks: AHashMap<IVec3, Option<ChunkMeshData>>,
+    chunks: HashMap<IVec3, Option<ChunkMeshData>>,
     world: World,
     camera: Camera,
     camera_controller: CameraController,
@@ -539,7 +537,7 @@ impl State {
             instance_buffer: None,
             total_instances: 0,
 
-            chunks: AHashMap::new(),
+            chunks: HashMap::new(),
             world,
             camera,
             camera_controller: CameraController::new(10.0, 0.1),

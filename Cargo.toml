@@ -14,6 +14,7 @@ cgmath = "0.18"
 ahash = "0.8.12"
 fastnoise-lite = "1.1.1"
 image = "0.25.10"
+hashbrown = "0.16.1"
 
 [profile.release]
 debug = true

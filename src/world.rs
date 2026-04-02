@@ -1,9 +1,8 @@
-use ahash::{AHashMap, AHashSet};
-use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
-
 use crate::chunk::{Chunk, ChunkRefs};
 use crate::constants::*;
 use crate::position::IVec3;
+use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
+use hashbrown::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
@@ -17,11 +16,11 @@ pub enum WorldResponse {
 }
 
 pub struct World {
-    pub chunks: AHashMap<IVec3, Arc<Chunk>>,
+    pub chunks: HashMap<IVec3, Arc<Chunk>>,
     pub render_distance: i32,
     request_tx: Sender<WorldRequest>,
     response_rx: Receiver<WorldResponse>,
-    pending_chunks: AHashSet<IVec3>,
+    pending_chunks: HashSet<IVec3>,
 }
 
 impl World {
@@ -67,11 +66,11 @@ impl World {
         });
 
         Self {
-            chunks: AHashMap::new(),
+            chunks: HashMap::new(),
             render_distance,
             request_tx,
             response_rx,
-            pending_chunks: AHashSet::new(),
+            pending_chunks: HashSet::new(),
         }
     }
 

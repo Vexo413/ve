@@ -1,8 +1,7 @@
+use hashbrown::HashMap;
+
 use crate::position::UVec3;
 use crate::{constants::*, position::IVec3};
-use ahash::AHashMap;
-use rand::RngExt;
-use rand::rngs::ThreadRng;
 use std::sync::Arc;
 
 #[repr(transparent)]
@@ -177,13 +176,13 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
         }
     }
 
-    let mut data: [AHashMap<u32, AHashMap<u32, [u32; 32]>>; 6] = [
-        AHashMap::new(),
-        AHashMap::new(),
-        AHashMap::new(),
-        AHashMap::new(),
-        AHashMap::new(),
-        AHashMap::new(),
+    let mut data: [HashMap<u32, HashMap<u32, [u32; 32]>>; 6] = [
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
     ];
 
     for axis in 0..6 {
