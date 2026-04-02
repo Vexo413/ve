@@ -1,5 +1,5 @@
 use crate::{
-    chunk::mesh,
+    chunk::{Instance, mesh},
     constants::{CHUNK_SIZE, RENDER_DISTANCE},
     position::IVec3,
     world::World,
@@ -12,6 +12,7 @@ use image::GenericImageView;
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
+    dpi::Position,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle},
     window::{Window, WindowId},
@@ -19,9 +20,18 @@ use winit::{
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct ChunkUniform {
+struct GpuInstance {
+    data: u32,
+    chunk_id: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuChunkData {
     world_pos: [f32; 3],
     _padding: f32,
+    face_counts: [u32; 6],
+    _padding2: [u32; 2],
 }
 
 struct Camera {
@@ -196,10 +206,8 @@ impl CameraController {
     }
 }
 
-struct ChunkRenderData {
-    face_buffers: [Option<wgpu::Buffer>; 6],
-    face_counts: [u32; 6],
-    bind_group: wgpu::BindGroup,
+struct ChunkMeshData {
+    instances: [Vec<Instance>; 6],
 }
 
 struct State {
@@ -213,8 +221,13 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     depth_texture_view: wgpu::TextureView,
     index_buffer: wgpu::Buffer,
-    chunk_bind_group_layout: wgpu::BindGroupLayout,
-    chunks: AHashMap<IVec3, Option<ChunkRenderData>>,
+
+    chunks_storage_layout: wgpu::BindGroupLayout,
+    chunks_storage_bind_group: Option<wgpu::BindGroup>,
+    instance_buffer: Option<wgpu::Buffer>,
+    total_instances: u32,
+
+    chunks: AHashMap<IVec3, Option<ChunkMeshData>>,
     world: World,
     camera: Camera,
     camera_controller: CameraController,
@@ -330,15 +343,15 @@ impl State {
         let cap = surface.get_capabilities(&adapter);
         let surface_format = cap.formats[0];
 
-        // CHUNK
-        let chunk_bind_group_layout =
+        // CHUNK STORAGE
+        let chunks_storage_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Chunk Bind Group Layout"),
+                label: Some("Chunks Storage Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -433,7 +446,7 @@ impl State {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Voxel Pipeline Layout"),
             bind_group_layouts: &[
-                Some(&chunk_bind_group_layout),
+                Some(&chunks_storage_layout),
                 Some(&camera_bind_group_layout),
                 Some(&atlas_bind_group_layout),
             ],
@@ -446,12 +459,19 @@ impl State {
         });
 
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<u32>() as u64,
-            attributes: &[wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Uint32,
-                offset: 0,
-                shader_location: 0,
-            }],
+            array_stride: std::mem::size_of::<GpuInstance>() as u64,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Uint32,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Uint32,
+                    offset: 4,
+                    shader_location: 1,
+                },
+            ],
             step_mode: wgpu::VertexStepMode::Instance,
         };
 
@@ -513,7 +533,12 @@ impl State {
             render_pipeline,
             depth_texture_view,
             index_buffer,
-            chunk_bind_group_layout,
+
+            chunks_storage_layout,
+            chunks_storage_bind_group: None,
+            instance_buffer: None,
+            total_instances: 0,
+
             chunks: AHashMap::new(),
             world,
             camera,
@@ -549,6 +574,7 @@ impl State {
         self.world.update_load_area(camera_pos);
 
         // Remove chunks that are no longer in the world
+        let mut changed = self.chunks.len() != self.world.chunks.len();
         self.chunks
             .retain(|pos, _| self.world.chunks.contains_key(pos));
 
@@ -579,61 +605,90 @@ impl State {
                         continue;
                     }
 
-                    let mut face_buffers: [Option<wgpu::Buffer>; 6] = Default::default();
-                    let mut face_counts: [u32; 6] = [0; 6];
-
-                    for (f, inst) in instances.iter().enumerate() {
-                        if !inst.is_empty() {
-                            face_buffers[f] = Some(self.device.create_buffer_init(
-                                &wgpu::util::BufferInitDescriptor {
-                                    label: Some("Instance Buffer"),
-                                    contents: bytemuck::cast_slice(inst),
-                                    usage: wgpu::BufferUsages::VERTEX,
-                                },
-                            ));
-                            face_counts[f] = inst.len() as u32;
-                        }
-                    }
-
-                    let pos_world = [
-                        (pos.x * CHUNK_SIZE as i32) as f32,
-                        (pos.y * CHUNK_SIZE as i32) as f32,
-                        (pos.z * CHUNK_SIZE as i32) as f32,
-                    ];
-
-                    let uniform = ChunkUniform {
-                        world_pos: pos_world,
-                        _padding: 0.0,
-                    };
-
-                    let uniform_buffer =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Chunk Uniform Buffer"),
-                                contents: bytemuck::cast_slice(&[uniform]),
-                                usage: wgpu::BufferUsages::UNIFORM,
-                            });
-
-                    let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Chunk Bind Group"),
-                        layout: &self.chunk_bind_group_layout,
-                        entries: &[wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: uniform_buffer.as_entire_binding(),
-                        }],
-                    });
-
-                    self.chunks.insert(
-                        pos,
-                        Some(ChunkRenderData {
-                            face_buffers,
-                            face_counts,
-                            bind_group,
-                        }),
-                    );
+                    changed = true;
+                    self.chunks.insert(pos, Some(ChunkMeshData { instances }));
                 }
             }
         }
+
+        // if changed {
+        self.rebuild_gpu_buffers();
+        // }
+    }
+
+    fn rebuild_gpu_buffers(&mut self) {
+        let mut all_instances = Vec::new();
+        let mut chunks_data = Vec::new();
+
+        // Sort positions to ensure deterministic order (though not strictly required)
+        let mut positions: Vec<_> = self
+            .chunks
+            .iter()
+            .filter_map(|(pos, data)| data.as_ref().map(|_| *pos))
+            .collect();
+        // positions.sort_by_key(|p| (p.x, p.y, p.z));
+
+        // Create `GpuChunkData`s and combine all instances into `GpuInstance`s
+        for (i, pos) in positions.into_iter().enumerate() {
+            if let Some(chunk_data) = self.chunks.get(&pos).unwrap() {
+                let mut face_counts = [0; 6];
+                for (f, instances) in chunk_data.instances.iter().enumerate() {
+                    face_counts[f] = instances.len() as u32;
+                    for inst in instances {
+                        all_instances.push(GpuInstance {
+                            data: inst.0,
+                            chunk_id: i as u32,
+                        });
+                    }
+                }
+
+                chunks_data.push(GpuChunkData {
+                    world_pos: [
+                        (pos.x * CHUNK_SIZE as i32) as f32,
+                        (pos.y * CHUNK_SIZE as i32) as f32,
+                        (pos.z * CHUNK_SIZE as i32) as f32,
+                    ],
+                    _padding: 0.0,
+                    face_counts,
+                    _padding2: [0; 2],
+                });
+            }
+        }
+
+        if all_instances.is_empty() {
+            self.total_instances = 0;
+            self.instance_buffer = None;
+            self.chunks_storage_bind_group = None;
+            return;
+        }
+
+        self.total_instances = all_instances.len() as u32;
+
+        self.instance_buffer = Some(self.device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Global Instance Buffer"),
+                contents: bytemuck::cast_slice(&all_instances),
+                usage: wgpu::BufferUsages::VERTEX,
+            },
+        ));
+
+        let storage_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Chunks Storage Buffer"),
+                contents: bytemuck::cast_slice(&chunks_data),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+
+        self.chunks_storage_bind_group =
+            Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Chunks Storage Bind Group"),
+                layout: &self.chunks_storage_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: storage_buffer.as_entire_binding(),
+                }],
+            }));
     }
 
     fn configure_surface(&self) {
@@ -727,46 +782,18 @@ impl State {
                 multiview_mask: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.atlas_bind_group, &[]);
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            if let (Some(instance_buffer), Some(storage_bind_group)) =
+                (&self.instance_buffer, &self.chunks_storage_bind_group)
+            {
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, storage_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.atlas_bind_group, &[]);
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
 
-            let cam_x = self.camera.eye.x;
-            let cam_y = self.camera.eye.y;
-            let cam_z = self.camera.eye.z;
-
-            for (pos, chunk_data) in self.chunks.iter() {
-                if let Some(chunk_data) = chunk_data {
-                    render_pass.set_bind_group(0, &chunk_data.bind_group, &[]);
-
-                    let min_x = (pos.x * CHUNK_SIZE as i32) as f32;
-                    let max_x = min_x + CHUNK_SIZE as f32;
-                    let min_y = (pos.y * CHUNK_SIZE as i32) as f32;
-                    let max_y = min_y + CHUNK_SIZE as f32;
-                    let min_z = (pos.z * CHUNK_SIZE as i32) as f32;
-                    let max_z = min_z + CHUNK_SIZE as f32;
-
-                    for f in 0..6 {
-                        if let Some(buffer) = &chunk_data.face_buffers[f] {
-                            let visible = match f {
-                                0 => cam_x > min_x, // PosX faces point to +X, visible if cam_x > face_x
-                                1 => cam_x < max_x, // NegX faces point to -X, visible if cam_x < face_x
-                                2 => cam_y > min_y, // PosY faces point to +Y, visible if cam_y > face_y
-                                3 => cam_y < max_y, // NegY faces point to -Y, visible if cam_y < face_y
-                                4 => cam_z > min_z, // PosZ faces point to +Z, visible if cam_z > face_z
-                                5 => cam_z < max_z, // NegZ faces point to -Z, visible if cam_z < face_z
-                                _ => true,
-                            };
-
-                            if visible {
-                                // println!("We are drawing");
-                                render_pass.set_vertex_buffer(0, buffer.slice(..));
-                                render_pass.draw_indexed(0..6, 0, 0..chunk_data.face_counts[f]);
-                            }
-                        }
-                    }
-                }
+                render_pass.draw_indexed(0..6, 0, 0..self.total_instances);
             }
         }
 

@@ -31,7 +31,6 @@ impl World {
 
         thread::spawn(move || {
             let mut noise = FastNoiseLite::new();
-            let mut rng = rand::rng();
             noise.set_noise_type(Some(NoiseType::OpenSimplex2));
             noise.set_fractal_type(Some(FractalType::Ridged));
             noise.set_fractal_octaves(Some(9));
@@ -55,7 +54,7 @@ impl World {
                         let mut generated_chunks = Vec::new();
                         for y in ys {
                             let pos = IVec3::new(x, y, z);
-                            let chunk = Chunk::new_terrain(pos, &heights, &mut rng);
+                            let chunk = Chunk::new_terrain(pos, &heights);
                             generated_chunks.push((pos, Arc::new(chunk)));
                         }
 

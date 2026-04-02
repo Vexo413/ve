@@ -1,5 +1,6 @@
 struct InstanceInput {
     @location(0) data: u32,
+    @location(1) chunk_id: u32,
 };
 
 struct VertexInput {
@@ -14,8 +15,9 @@ struct VertexOutput {
     @location(2) @interpolate(flat) block_type: u32,
 };
 
-struct ChunkUniform {
+struct ChunkData {
     world_pos: vec3<f32>,
+    face_counts: array<u32, 6>,
 };
 
 struct CameraUniform {
@@ -23,7 +25,7 @@ struct CameraUniform {
 };
 
 @group(0) @binding(0)
-var<uniform> chunk: ChunkUniform;
+var<storage, read> chunks_data: array<ChunkData>;
 @group(1) @binding(0)
 var<uniform> camera: CameraUniform;
 @group(2) @binding(0)
@@ -37,6 +39,8 @@ fn vs_main(
     vertex: VertexInput,
 ) -> VertexOutput {
     let data = instance.data;
+    let chunk_id = instance.chunk_id;
+    let chunk = chunks_data[chunk_id];
     
     // Unpack data
     // WWWWWHHHHHTTTTFFFZZZZZYYYYYXXXXX
