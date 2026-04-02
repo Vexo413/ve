@@ -112,10 +112,10 @@ impl ChunkRefs {
         self.refs[chunk_index as usize].get(x, y, z)
     }
 
-    pub fn get(&self, x: i32, y: i32, z: i32) -> BlockType {
-        let x = (x + 32) as u32;
-        let y = (y + 32) as u32;
-        let z = (z + 32) as u32;
+    pub fn get(&self, pos: IVec3) -> BlockType {
+        let x = (pos.x + 32) as u32;
+        let y = (pos.y + 32) as u32;
+        let z = (pos.z + 32) as u32;
         let x_chunk = x >> 5;
         let y_chunk = y >> 5;
         let z_chunk = z >> 5;
@@ -147,7 +147,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
     for x in -1..CHUNK_SIZE as i32 + 1 {
         for y in -1..CHUNK_SIZE as i32 + 1 {
             for z in -1..CHUNK_SIZE as i32 + 1 {
-                if chunk_refs.get(x, y, z).is_solid() {
+                if chunk_refs.get(IVec3::new(x, y, z)).is_solid() {
                     let range = 0..32;
                     if range.contains(&y) && range.contains(&z) {
                         occupied_x[(y as usize) * CHUNK_SIZE_U + z as usize] |= 1u64 << x + 1;
@@ -215,9 +215,10 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                     };
 
                     let current_voxel = chunk_refs.get_only_self(x, y, z);
-                    let block_hash = current_voxel as u32 - 1; // No nead for empty
+                    let texture_id = current_voxel as u32 - 1;
+
                     let layer_data = data[axis]
-                        .entry(block_hash)
+                        .entry(texture_id)
                         .or_default()
                         .entry(k)
                         .or_default();
@@ -237,8 +238,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
             4 => FaceDirection::PosZ,
             _ => FaceDirection::NegZ,
         };
-        for (block_hash, block_data) in axis_data.into_iter() {
-            let block_type = *block_hash;
+        for (texture_id, block_data) in axis_data.into_iter() {
             for (layer_index, layer) in block_data.into_iter() {
                 let quads_from_axis = greedy_mesh(layer);
                 for quad in quads_from_axis {
@@ -254,19 +254,17 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                         FaceDirection::PosZ | FaceDirection::NegZ => UVec3::new(x, y, *layer_index),
                     };
                     // Unpack data
-                    // WWWWWHHHHHTTTTFFFZZZZZYYYYYXXXXX
+                    // WWWWWHHHHHTTTTTTTZZZZZYYYYYXXXXX
                     // X: 0-4 (5 bits)
                     // Y: 5-9 (5 bits)
                     // Z: 10-14 (5 bits)
-                    // F: 15-17 (3 bits)
-                    // T: 18-21 (4 bits)
+                    // T: 15-21 (7 bits) - texture data
                     // H: 22-26 (5 bits)
                     // W: 27-31 (5 bits)
                     encoded_data |= pos.x;
                     encoded_data |= pos.y << 5;
                     encoded_data |= pos.z << 10;
-                    encoded_data |= (axis_index as u32) << 15;
-                    encoded_data |= block_type << 18;
+                    encoded_data |= (*texture_id) << 15;
                     encoded_data |= (h - 1) << 22; // it won't fit in five bits
                     encoded_data |= (w - 1) << 27; // it won't fit in five bits
                     instances[axis_index].push(Instance(encoded_data));
@@ -276,3 +274,12 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
     }
     instances
 }
+// fn raycast(ray: IVec3, origin: IVec3, chunk_refs: ChunkRefs) -> IVec3 {
+//     let mut current = origin;
+//     loop {
+//         if !chunk_refs.get(current).is_solid() {
+//             return current;
+//         }
+//         let select = IVec3::new(-pos.x as f32), y, z)
+//     }
+// }

@@ -12,11 +12,12 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) face: u32,
-    @location(2) @interpolate(flat) block_type: u32,
+    @location(2) @interpolate(flat) texture_id: u32,
 };
 
 struct ChunkData {
     world_pos: vec3<f32>,
+    base_instance_id: u32,
     face_counts: array<u32, 6>,
 };
 
@@ -43,22 +44,32 @@ fn vs_main(
     let chunk = chunks_data[chunk_id];
     
     // Unpack data
-    // WWWWWHHHHHTTTTFFFZZZZZYYYYYXXXXX
+    // WWWWWHHHHHTTTTTTTZZZZZYYYYYXXXXX
     // X: 0-4 (5 bits)
     // Y: 5-9 (5 bits)
     // Z: 10-14 (5 bits)
-    // F: 15-17 (3 bits)
-    // T: 18-21 (4 bits)
+    // T: 15-21 (7 bits) - texture data
     // H: 22-26 (5 bits)
     // W: 27-31 (5 bits)
 
     let x = f32(data & 0x1Fu);
     let y = f32((data >> 5u) & 0x1Fu);
     let z = f32((data >> 10u) & 0x1Fu);
-    let face = (data >> 15u) & 0x7u;
-    let block_type = (data >> 18u) & 0xFu;
+    let texture_id = (data >> 15u) & 0x7Fu;
     let h = f32((data >> 22u) & 0x1Fu) + 1.0; // Undo offset in `mesh` function
     let w = f32((data >> 27u) & 0x1Fu) + 1.0; // Undo offset in `mesh` function
+
+    // Calculate face from ChunkData and instance_index
+    let local_id = vertex.instance_index - chunk.base_instance_id;
+    var face = 0u;
+    var count_acc = 0u;
+    for (var i = 0u; i < 6u; i++) {
+        count_acc += chunk.face_counts[i];
+        if local_id < count_acc {
+            face = i;
+            break;
+        }
+    }
 
     var pos: vec3<f32>;
     let quad_pos = vec2<f32>(
@@ -98,22 +109,22 @@ fn vs_main(
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.uv = scaled_pos;
     out.face = face;
-    out.block_type = block_type;
+    out.texture_id = texture_id;
 
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let block_index = in.block_type;
+    let texture_id = in.texture_id;
     let tex_dims = vec2<f32>(textureDimensions(t_diffuse));
     
     // Assume 16x16 tiles for scalability
     let tile_size = 16.0;
     let tiles_per_row = u32(tex_dims.x / tile_size);
 
-    let tile_x = f32(block_index % tiles_per_row);
-    let tile_y = f32(block_index / tiles_per_row);
+    let tile_x = f32(texture_id % tiles_per_row);
+    let tile_y = f32(texture_id / tiles_per_row);
     
     // Use fract for repeating textures in greedy meshing
     let tile_uv = fract(in.uv);

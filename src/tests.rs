@@ -1,4 +1,4 @@
-use crate::{chunk::*, constants::*};
+use crate::{chunk::*, constants::*, position::IVec3};
 use std::sync::Arc;
 
 #[test]
@@ -40,15 +40,15 @@ fn test_chunk_refs_get() {
     };
 
     // Verify center chunk access
-    assert_eq!(chunk_refs.get(0, 0, 0), BlockType::Dirt);
-    assert_eq!(chunk_refs.get(1, 0, 0), BlockType::Empty);
-    assert_eq!(chunk_refs.get(31, 31, 31), BlockType::Empty);
+    assert_eq!(chunk_refs.get(IVec3::new(0, 0, 0)), BlockType::Dirt);
+    assert_eq!(chunk_refs.get(IVec3::new(1, 0, 0)), BlockType::Empty);
+    assert_eq!(chunk_refs.get(IVec3::new(31, 31, 31)), BlockType::Empty);
     // Verify negative coordinates
-    assert_eq!(chunk_refs.get(-1, -1, -1), BlockType::Empty);
+    assert_eq!(chunk_refs.get(IVec3::new(-1, -1, -1)), BlockType::Empty);
     // Access beyond center chunk
-    assert_eq!(chunk_refs.get(-32, -32, -32), BlockType::Dirt);
+    assert_eq!(chunk_refs.get(IVec3::new(-32, -32, -32)), BlockType::Dirt);
     assert_eq!(
-        chunk_refs.get(32, 0, 0).is_solid() || !chunk_refs.get(32, 0, 0).is_solid(),
+        chunk_refs.get(IVec3::new(32, 0, 0)).is_solid() || !chunk_refs.get(IVec3::new(32, 0, 0)).is_solid(),
         true
     );
 }

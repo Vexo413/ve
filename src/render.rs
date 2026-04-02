@@ -27,7 +27,7 @@ struct GpuInstance {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuChunkData {
     world_pos: [f32; 3],
-    _padding: f32,
+    base_instance_id: u32,
     face_counts: [u32; 6],
     _padding2: [u32; 2],
 }
@@ -625,6 +625,7 @@ impl State {
         // Create `GpuChunkData`s and combine all instances into `GpuInstance`s
         for (i, pos) in positions.into_iter().enumerate() {
             if let Some(chunk_data) = self.chunks.get(&pos).unwrap() {
+                let base_instance_id = all_instances.len() as u32;
                 let mut face_counts = [0; 6];
                 for (f, instances) in chunk_data.instances.iter().enumerate() {
                     face_counts[f] = instances.len() as u32;
@@ -642,7 +643,7 @@ impl State {
                         (pos.y * CHUNK_SIZE as i32) as f32,
                         (pos.z * CHUNK_SIZE as i32) as f32,
                     ],
-                    _padding: 0.0,
+                    base_instance_id,
                     face_counts,
                     _padding2: [0; 2],
                 });
