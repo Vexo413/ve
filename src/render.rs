@@ -173,7 +173,7 @@ impl CameraController {
 
         camera.target = camera.eye + forward;
 
-        let forward = Vector3::new(forward.x, 0.0, forward.z);
+        let forward = Vector3::new(forward.x, 0.0, forward.z).normalize();
 
         let right = forward.cross(camera.up).normalize();
 
@@ -572,7 +572,6 @@ impl State {
         self.world.update_load_area(camera_pos);
 
         // Remove chunks that are no longer in the world
-        let mut changed = self.chunks.len() != self.world.chunks.len();
         self.chunks
             .retain(|pos, _| self.world.chunks.contains_key(pos));
 
@@ -603,15 +602,12 @@ impl State {
                         continue;
                     }
 
-                    changed = true;
                     self.chunks.insert(pos, Some(ChunkMeshData { instances }));
                 }
             }
         }
 
-        // if changed {
         self.rebuild_gpu_buffers();
-        // }
     }
 
     fn rebuild_gpu_buffers(&mut self) {
@@ -619,7 +615,7 @@ impl State {
         let mut chunks_data = Vec::new();
 
         // Sort positions to ensure deterministic order (though not strictly required)
-        let mut positions: Vec<_> = self
+        let positions: Vec<_> = self
             .chunks
             .iter()
             .filter_map(|(pos, data)| data.as_ref().map(|_| *pos))
