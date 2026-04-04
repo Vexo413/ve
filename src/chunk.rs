@@ -1,8 +1,7 @@
 use hashbrown::HashMap;
 
-use crate::position::{Ray3, UVec3, Vec3};
+use crate::position::UVec3;
 use crate::{constants::*, position::IVec3};
-use std::ops::Neg;
 use std::sync::Arc;
 
 #[repr(transparent)]
@@ -10,11 +9,23 @@ use std::sync::Arc;
 pub struct Instance(pub u32);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum BlockType {
-    Empty,
-    Dirt,
-    Grass,
-    Stone,
+    Empty = 0,
+    Dirt = 1,
+    Grass = 2,
+    Stone = 3,
+}
+
+impl From<u8> for BlockType {
+    fn from(v: u8) -> Self {
+        match v {
+            1 => BlockType::Dirt,
+            2 => BlockType::Grass,
+            3 => BlockType::Stone,
+            _ => BlockType::Empty,
+        }
+    }
 }
 
 impl BlockType {
@@ -74,12 +85,12 @@ pub fn greedy_mesh(layer: &[u32; 32]) -> Vec<Quad> {
 
 #[derive(Copy, Clone)]
 pub struct Chunk {
-    pub voxels: [BlockType; CHUNK_SIZE3_U],
+    pub voxels: [u8; CHUNK_SIZE3_U],
 }
 
 impl Chunk {
     pub fn new_terrain(position: IVec3, heights: &[i32; CHUNK_SIZE2_U]) -> Self {
-        let mut voxels = [BlockType::Empty; CHUNK_SIZE3_U];
+        let mut voxels = [BlockType::Empty as u8; CHUNK_SIZE3_U];
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
                 let h = heights[x as usize * CHUNK_SIZE_U + z as usize];
@@ -87,11 +98,11 @@ impl Chunk {
                     let dirt_level = (x as f64).sin() * (z as f64).cos() + 12.0;
                     let global_y = position.y * CHUNK_SIZE as i32 + y as i32;
                     if global_y < h && global_y >= dirt_level as i32 {
-                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Stone;
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Stone as u8;
                     } else if global_y < h {
-                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt;
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt as u8;
                     } else if global_y == h {
-                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Grass;
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Grass as u8;
                     }
                 }
             }
@@ -100,7 +111,9 @@ impl Chunk {
     }
 
     pub fn get(&self, x: u32, y: u32, z: u32) -> BlockType {
-        self.voxels[x as usize * CHUNK_SIZE2_U + y as usize * CHUNK_SIZE_U + z as usize]
+        BlockType::from(
+            self.voxels[x as usize * CHUNK_SIZE2_U + y as usize * CHUNK_SIZE_U + z as usize],
+        )
     }
 }
 
@@ -134,7 +147,7 @@ impl ChunkRefs {
 }
 
 pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
-    if chunk_refs.refs[13].voxels == [BlockType::Empty; CHUNK_SIZE3_U] {
+    if chunk_refs.refs[13].voxels == [BlockType::Empty as u8; CHUNK_SIZE3_U] {
         return [const { Vec::new() }; 6];
     }
 
@@ -275,45 +288,3 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
     }
     instances
 }
-// fn raycast(ray: Ray3, chunk_refs: ChunkRefs) -> IVec3 {
-//     let mut current = IVec3::new(
-//         ray.origin.x as i32,
-//         ray.origin.y as i32,
-//         ray.origin.z as i32,
-//     );
-//     let step = IVec3::new(
-//         ray.direction.x as i32,
-//         ray.direction.y as i32,
-//         ray.direction.z as i32,
-//     );
-//     loop {
-//         if !chunk_refs.get(current).is_solid() {
-//             return current;
-//         }
-//         let select = Vec3::new(
-//             0.5 + 0.5 * (-ray.direction.x).signum(),
-//             0.5 + 0.5 * (-ray.direction.y).signum(),
-//             0.5 + 0.5 * (-ray.direction.z).signum(),
-//         );
-//         let planes = Vec3::new(current.x as f32, current.y as f32, current.z as f32) + select;
-//         let t = planes - ray.origin;
-//         let t = Vec3::new(
-//             t.x * -ray.direction.x,
-//             t.y * -ray.direction.y,
-//             t.z * -ray.direction.z,
-//         );
-//         if t.x < t.y {
-//             if t.x < t.z {
-//                 current.x += step.x;
-//             } else {
-//                 current.z += step.z;
-//             }
-//         } else {
-//             if t.y < t.z {
-//                 current.y += step.y;
-//             } else {
-//                 current.z += step.z;
-//             }
-//         }
-//     }
-// }

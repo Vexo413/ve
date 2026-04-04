@@ -82,6 +82,7 @@ struct CameraController {
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
+    is_c_pressed: bool,
     yaw: f32,
     pitch: f32,
     cursor_locked: bool,
@@ -98,6 +99,7 @@ impl CameraController {
             is_backward_pressed: false,
             is_left_pressed: false,
             is_right_pressed: false,
+            is_c_pressed: false,
             yaw: -90.0,
             pitch: 0.0,
             cursor_locked: false,
@@ -123,6 +125,10 @@ impl CameraController {
                     }
                     winit::keyboard::KeyCode::Space => {
                         self.is_up_pressed = is_pressed;
+                        true
+                    }
+                    winit::keyboard::KeyCode::KeyC => {
+                        self.is_c_pressed = is_pressed;
                         true
                     }
                     winit::keyboard::KeyCode::KeyW | winit::keyboard::KeyCode::ArrowUp => {
@@ -564,12 +570,12 @@ impl State {
         self.world.process_responses();
 
         // Update world based on camera position
-        let camera_pos = IVec3::new(
+        let camera_chunk_pos = IVec3::new(
             (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
             (self.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
             (self.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
         );
-        self.world.update_load_area(camera_pos);
+        self.world.update_load_area(camera_chunk_pos);
 
         // Remove chunks that are no longer in the world
         self.chunks
@@ -581,7 +587,7 @@ impl State {
         for x in range.clone() {
             for y in range.clone() {
                 for z in range.clone() {
-                    let pos = camera_pos + IVec3::new(x, y, z);
+                    let pos = camera_chunk_pos + IVec3::new(x, y, z);
 
                     // Skip chunks we already have
                     if self.chunks.contains_key(&pos) {
@@ -712,6 +718,26 @@ impl State {
     fn update(&mut self) {
         let dt = self.last_frame_instant.elapsed().as_secs_f32();
         self.last_frame_instant = Instant::now();
+
+        if self.camera_controller.is_c_pressed {
+            let camera_chunk_pos = IVec3::new(
+                (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
+                (self.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
+                (self.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
+            );
+            self.world.clear_chunk(camera_chunk_pos);
+            // Invalidate chunk in render side to force remesh
+            for x in -1..2 {
+                for y in -1..2 {
+                    for z in -1..2 {
+                        self.chunks
+                            .remove(&(camera_chunk_pos + IVec3::new(x, y, z)));
+                    }
+                }
+            }
+            self.camera_controller.is_c_pressed = false; // Reset so it only clears once per press
+        }
+
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(
