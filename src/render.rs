@@ -26,7 +26,7 @@ struct GpuInstance {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuChunkData {
-    world_pos: [f32; 3],
+    world_position: [f32; 3],
     base_instance_id: u32,
     face_counts: [u32; 6],
     _padding2: [u32; 2],
@@ -535,9 +535,9 @@ impl State {
             surface,
             surface_format,
             render_pipeline,
+
             depth_texture_view,
             index_buffer,
-
             chunks_storage_layout,
             chunks_storage_bind_group: None,
             instance_buffer: None,
@@ -570,16 +570,16 @@ impl State {
         self.world.process_responses();
 
         // Update world based on camera position
-        let camera_chunk_pos = IVec3::new(
+        let camera_chunk_position = IVec3::new(
             (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
             (self.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
             (self.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
         );
-        self.world.update_load_area(camera_chunk_pos);
+        self.world.update_load_area(camera_chunk_position);
 
         // Remove chunks that are no longer in the world
         self.chunks
-            .retain(|pos, _| self.world.chunks.contains_key(pos));
+            .retain(|position, _| self.world.chunks.contains_key(position));
 
         // Add new chunks
         let range = -RENDER_DISTANCE..=RENDER_DISTANCE;
@@ -587,15 +587,15 @@ impl State {
         for x in range.clone() {
             for y in range.clone() {
                 for z in range.clone() {
-                    let pos = camera_chunk_pos + IVec3::new(x, y, z);
+                    let position = camera_chunk_position + IVec3::new(x, y, z);
 
                     // Skip chunks we already have
-                    if self.chunks.contains_key(&pos) {
+                    if self.chunks.contains_key(&position) {
                         continue;
                     }
 
                     // Skip if no chunk refs
-                    let refs = match self.world.get_chunk_refs(pos) {
+                    let refs = match self.world.get_chunk_refs(position) {
                         Some(r) => r,
                         None => continue,
                     };
@@ -604,11 +604,12 @@ impl State {
 
                     // Skip empty chunks
                     if instances.iter().all(|v| v.is_empty()) {
-                        self.chunks.insert(pos, None);
+                        self.chunks.insert(position, None);
                         continue;
                     }
 
-                    self.chunks.insert(pos, Some(ChunkMeshData { instances }));
+                    self.chunks
+                        .insert(position, Some(ChunkMeshData { instances }));
                 }
             }
         }
@@ -624,13 +625,13 @@ impl State {
         let positions: Vec<_> = self
             .chunks
             .iter()
-            .filter_map(|(pos, data)| data.as_ref().map(|_| *pos))
+            .filter_map(|(position, data)| data.as_ref().map(|_| *position))
             .collect();
         // positions.sort_by_key(|p| (p.x, p.y, p.z));
 
         // Create `GpuChunkData`s and combine all instances into `GpuInstance`s
-        for (i, pos) in positions.into_iter().enumerate() {
-            if let Some(chunk_data) = self.chunks.get(&pos).unwrap() {
+        for (i, position) in positions.into_iter().enumerate() {
+            if let Some(chunk_data) = self.chunks.get(&position).unwrap() {
                 let base_instance_id = all_instances.len() as u32;
                 let mut face_counts = [0; 6];
                 for (f, instances) in chunk_data.instances.iter().enumerate() {
@@ -644,10 +645,10 @@ impl State {
                 }
 
                 chunks_data.push(GpuChunkData {
-                    world_pos: [
-                        (pos.x * CHUNK_SIZE as i32) as f32,
-                        (pos.y * CHUNK_SIZE as i32) as f32,
-                        (pos.z * CHUNK_SIZE as i32) as f32,
+                    world_position: [
+                        (position.x * CHUNK_SIZE as i32) as f32,
+                        (position.y * CHUNK_SIZE as i32) as f32,
+                        (position.z * CHUNK_SIZE as i32) as f32,
                     ],
                     base_instance_id,
                     face_counts,
@@ -720,18 +721,18 @@ impl State {
         self.last_frame_instant = Instant::now();
 
         if self.camera_controller.is_c_pressed {
-            let camera_chunk_pos = IVec3::new(
+            let camera_chunk_position = IVec3::new(
                 (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
                 (self.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
                 (self.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
             );
-            self.world.clear_chunk(camera_chunk_pos);
+            self.world.clear_chunk(camera_chunk_position);
             // Invalidate chunk in render side to force remesh
             for x in -1..2 {
                 for y in -1..2 {
                     for z in -1..2 {
                         self.chunks
-                            .remove(&(camera_chunk_pos + IVec3::new(x, y, z)));
+                            .remove(&(camera_chunk_position + IVec3::new(x, y, z)));
                     }
                 }
             }

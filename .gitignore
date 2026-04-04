@@ -1,5 +1,6 @@
 /target
 /flamegraph.svg
+/world
 Cargo.lock
 .DS_Store
 Atlas.af

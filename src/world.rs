@@ -59,10 +59,10 @@ impl World {
 
                         let mut generated_chunks = Vec::new();
                         for y in ys {
-                            let pos = IVec3::new(x, y, z);
-                            let chunk = Chunk::new_terrain(pos, &heights);
+                            let position = IVec3::new(x, y, z);
+                            let chunk = Chunk::new_terrain(position, &heights);
                             let arc_chunk = Arc::new(chunk);
-                            generated_chunks.push((pos, arc_chunk));
+                            generated_chunks.push((position, arc_chunk));
                         }
 
                         let _ = gen_response_sender.send(WorldResponse::ChunksGenerated {
@@ -190,30 +190,33 @@ impl World {
         });
 
         // Load new chunks within render distance
-        for x_off in -render_distance..=render_distance {
-            let x = center.x + x_off;
-            for z_off in -render_distance..=render_distance {
-                let z = center.z + z_off;
-                for y_off in -render_distance..=render_distance {
-                    let y = center.y + y_off;
-                    let pos = IVec3::new(x, y, z);
-                    if !self.chunks.contains_key(&pos) && !self.pending_chunks.contains(&pos) {
-                        self.pending_chunks.insert(pos);
-                        self.loading_chunks.insert(pos);
-                        let _ = self.io_request_sender.send(IORequest::LoadChunk(pos));
+        for x_offset in -render_distance..=render_distance {
+            let x = center.x + x_offset;
+            for z_offset in -render_distance..=render_distance {
+                let z = center.z + z_offset;
+                for y_offset in -render_distance..=render_distance {
+                    let y = center.y + y_offset;
+                    let position = IVec3::new(x, y, z);
+                    if !self.chunks.contains_key(&position)
+                        && !self.pending_chunks.contains(&position)
+                    {
+                        self.pending_chunks.insert(position);
+                        self.loading_chunks.insert(position);
+                        let _ = self.io_request_sender.send(IORequest::LoadChunk(position));
                     }
                 }
             }
         }
     }
 
-    pub fn get_chunk_refs(&self, pos: IVec3) -> Option<ChunkRefs> {
+    pub fn get_chunk_refs(&self, position: IVec3) -> Option<ChunkRefs> {
         let mut refs: Vec<Arc<Chunk>> = Vec::with_capacity(27);
         for x in -1..=1 {
             for y in -1..=1 {
                 for z in -1..=1 {
-                    let neighbor_pos = IVec3::new(pos.x + x, pos.y + y, pos.z + z);
-                    if let Some(chunk) = self.chunks.get(&neighbor_pos) {
+                    let neighbor_position =
+                        IVec3::new(position.x + x, position.y + y, position.z + z);
+                    if let Some(chunk) = self.chunks.get(&neighbor_position) {
                         refs.push(chunk.clone());
                     } else {
                         return None; // Cannot mesh if neighbors are missing

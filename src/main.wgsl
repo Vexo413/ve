@@ -64,7 +64,7 @@ fn vs_main(
     var face = 0u;
     var count_acc = 0u;
     for (var i = 0u; i < 6u; i++) {
-        count_acc += chunk.face_counts[i];
+        count_acc     += chunk.face_counts[i];
         if local_id < count_acc {
             face = i;
             break;

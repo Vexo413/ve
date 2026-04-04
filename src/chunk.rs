@@ -262,7 +262,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                     let h = quad.h;
 
                     let mut encoded_data: u32 = 0;
-                    let pos = match direction {
+                    let position = match direction {
                         FaceDirection::PosX | FaceDirection::NegX => UVec3::new(*layer_index, x, y),
                         FaceDirection::PosY | FaceDirection::NegY => UVec3::new(y, *layer_index, x),
                         FaceDirection::PosZ | FaceDirection::NegZ => UVec3::new(x, y, *layer_index),
@@ -275,9 +275,9 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                     // T: 15-21 (7 bits) - texture data
                     // H: 22-26 (5 bits)
                     // W: 27-31 (5 bits)
-                    encoded_data |= pos.x;
-                    encoded_data |= pos.y << 5;
-                    encoded_data |= pos.z << 10;
+                    encoded_data |= position.x;
+                    encoded_data |= position.y << 5;
+                    encoded_data |= position.z << 10;
                     encoded_data |= (*texture_id) << 15;
                     encoded_data |= (h - 1) << 22; // it won't fit in five bits
                     encoded_data |= (w - 1) << 27; // it won't fit in five bits
