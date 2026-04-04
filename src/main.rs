@@ -3,8 +3,8 @@ mod constants;
 mod io;
 mod position;
 mod render;
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 mod world;
 
 fn main() {

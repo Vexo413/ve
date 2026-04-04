@@ -1,6 +1,7 @@
 use hashbrown::HashMap;
 
-use crate::position::UVec3;
+use crate::position::{Ray3, UVec3, Vec3};
+use crate::world::World;
 use crate::{constants::*, position::IVec3};
 use std::sync::Arc;
 
@@ -110,9 +111,11 @@ impl Chunk {
         Self { voxels }
     }
 
-    pub fn get(&self, x: u32, y: u32, z: u32) -> BlockType {
+    pub fn get(&self, position: UVec3) -> BlockType {
         BlockType::from(
-            self.voxels[x as usize * CHUNK_SIZE2_U + y as usize * CHUNK_SIZE_U + z as usize],
+            self.voxels[position.x as usize * CHUNK_SIZE2_U
+                + position.y as usize * CHUNK_SIZE_U
+                + position.z as usize],
         )
     }
 }
@@ -122,14 +125,14 @@ pub struct ChunkRefs {
 }
 
 impl ChunkRefs {
-    fn get_from_chunk(&self, x: u32, y: u32, z: u32, chunk_index: u32) -> BlockType {
-        self.refs[chunk_index as usize].get(x, y, z)
+    fn get_from_chunk(&self, position: UVec3, chunk_index: u32) -> BlockType {
+        self.refs[chunk_index as usize].get(position)
     }
 
-    pub fn get(&self, pos: IVec3) -> BlockType {
-        let x = (pos.x + 32) as u32;
-        let y = (pos.y + 32) as u32;
-        let z = (pos.z + 32) as u32;
+    pub fn get(&self, position: IVec3) -> BlockType {
+        let x = (position.x + 32) as u32;
+        let y = (position.y + 32) as u32;
+        let z = (position.z + 32) as u32;
         let x_chunk = x >> 5;
         let y_chunk = y >> 5;
         let z_chunk = z >> 5;
@@ -138,11 +141,11 @@ impl ChunkRefs {
         let z = z & 31;
 
         let chunk_index = x_chunk * 9 + y_chunk * 3 + z_chunk;
-        self.get_from_chunk(x, y, z, chunk_index)
+        self.get_from_chunk(UVec3::new(x, y, z), chunk_index)
     }
 
-    pub fn get_only_self(&self, x: u32, y: u32, z: u32) -> BlockType {
-        self.get_from_chunk(x, y, z, 13)
+    pub fn get_only_self(&self, position: UVec3) -> BlockType {
+        self.get_from_chunk(position, 13)
     }
 }
 
@@ -222,13 +225,13 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                     let k = column.trailing_zeros();
                     column &= column - 1;
 
-                    let (x, y, z) = match axis {
-                        0 | 1 => (k, i, j),
-                        2 | 3 => (j, k, i),
-                        _ => (i, j, k),
+                    let position = match axis {
+                        0 | 1 => UVec3::new(k, i, j),
+                        2 | 3 => UVec3::new(j, k, i),
+                        _ => UVec3::new(i, j, k),
                     };
 
-                    let current_voxel = chunk_refs.get_only_self(x, y, z);
+                    let current_voxel = chunk_refs.get_only_self(position);
                     let texture_id = current_voxel as u32 - 1;
 
                     let layer_data = data[axis]
@@ -287,4 +290,55 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
         }
     }
     instances
+}
+
+pub fn raycast(ray: Ray3, world: &World) -> Option<IVec3> {
+    let mut position: IVec3 = ray.origin.into_iter().map(|v| v as i32).collect();
+
+    let step: IVec3 = ray
+        .reciprical
+        .into_iter()
+        .map(|v| v.signum() as i32)
+        .collect();
+    let delta: Vec3 = ray.reciprical.into_iter().map(|v| v.abs()).collect();
+
+    let select: Vec3 = ray
+        .reciprical
+        .into_iter()
+        .map(|v| 0.5 + 0.5 * v.signum())
+        .collect();
+    let planes: Vec3 = position.into_iter().map(|v| v as f32).collect::<Vec3>() + select;
+    let mut t = Vec3::new(
+        (planes.x - ray.origin.x) * ray.reciprical.x,
+        (planes.y - ray.origin.y) * ray.reciprical.y,
+        (planes.z - ray.origin.z) * ray.reciprical.z,
+    );
+
+    for _ in 0..1000 {
+        let global_position = position.to_chunk_pos();
+        if let Some(chunk_refs) = world.get_chunk_refs(global_position) {
+            let local_position = position.to_local_pos();
+            if chunk_refs.get_only_self(local_position).is_solid() {
+                return Some(position);
+            }
+        }
+        if t.x < t.y {
+            if t.x < t.z {
+                position.x += step.x;
+                t.x += delta.x;
+            } else {
+                position.z += step.z;
+                t.z += delta.z;
+            }
+        } else {
+            if t.y < t.z {
+                position.y += step.y;
+                t.y += delta.y;
+            } else {
+                position.z += step.z;
+                t.z += delta.z;
+            }
+        }
+    }
+    None
 }

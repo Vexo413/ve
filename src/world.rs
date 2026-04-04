@@ -184,6 +184,18 @@ impl World {
         }
     }
 
+    pub fn set_block(&mut self, global_pos: IVec3, block: crate::chunk::BlockType) {
+        let chunk_pos = global_pos.to_chunk_pos();
+        let local_pos = global_pos.to_local_pos();
+
+        if let Some(chunk) = self.chunks.get(&chunk_pos) {
+            let mut new_chunk = (**chunk).clone();
+            new_chunk.voxels[local_pos.to_index() as usize] = block as u8;
+            self.chunks.insert(chunk_pos, Arc::new(new_chunk));
+            self.changed_chunks.insert(chunk_pos);
+        }
+    }
+
     pub fn update_load_area(&mut self, center: IVec3) {
         let render_distance = self.render_distance + 1;
         // Unload chunks outside render distance

@@ -1,7 +1,7 @@
 use crate::{
-    chunk::{Instance, mesh},
+    chunk::{BlockType, Instance, mesh, raycast},
     constants::{CHUNK_SIZE, RENDER_DISTANCE},
-    position::IVec3,
+    position::{IVec3, Ray3, Vec3},
     world::World,
 };
 use cgmath::Vector3;
@@ -870,11 +870,34 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if button_state == winit::event::ElementState::Pressed {
-                    let _ = state
-                        .window
-                        .set_cursor_grab(winit::window::CursorGrabMode::Locked);
-                    state.window.set_cursor_visible(false);
-                    state.camera_controller.cursor_locked = true;
+                    if !state.camera_controller.cursor_locked {
+                        let _ = state
+                            .window
+                            .set_cursor_grab(winit::window::CursorGrabMode::Locked);
+                        state.window.set_cursor_visible(false);
+                        state.camera_controller.cursor_locked = true;
+                    } else {
+                        // Raycast to remove block
+                        let direction = state.camera.target - state.camera.eye;
+                        let ray = Ray3::new(
+                            Vec3::new(state.camera.eye.x, state.camera.eye.y, state.camera.eye.z),
+                            Vec3::new(direction.x, direction.y, direction.z),
+                        );
+                        if let Some(pos) = raycast(ray, &state.world) {
+                            state.world.set_block(pos, BlockType::Empty);
+                            // Invalidate chunks to force remesh
+                            // Need to invalidate neighbors too if we're meshing boundaries
+                            let base_chunk_pos = pos.to_chunk_pos();
+                            for x in -1..2 {
+                                for y in -1..2 {
+                                    for z in -1..2 {
+                                        let chunk_pos = base_chunk_pos + IVec3::new(x, y, z);
+                                        state.chunks.remove(&chunk_pos);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::KeyboardInput {

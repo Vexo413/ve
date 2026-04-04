@@ -19,6 +19,22 @@ impl IVec3 {
     pub fn splat(v: i32) -> Self {
         Self::new(v, v, v)
     }
+
+    pub fn to_chunk_pos(&self) -> IVec3 {
+        IVec3::new(
+            self.x.div_euclid(CHUNK_SIZE as i32),
+            self.y.div_euclid(CHUNK_SIZE as i32),
+            self.z.div_euclid(CHUNK_SIZE as i32),
+        )
+    }
+
+    pub fn to_local_pos(&self) -> UVec3 {
+        UVec3::new(
+            self.x.rem_euclid(CHUNK_SIZE as i32) as u32,
+            self.y.rem_euclid(CHUNK_SIZE as i32) as u32,
+            self.z.rem_euclid(CHUNK_SIZE as i32) as u32,
+        )
+    }
 }
 
 impl Add for IVec3 {
@@ -202,8 +218,16 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
-    pub const ZERO: Self = Self { x: 0.0, y: 0.0, z: 0.0 };
-    pub const ONE: Self = Self { x: 1.0, y: 1.0, z: 1.0 };
+    pub const ZERO: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    pub const ONE: Self = Self {
+        x: 1.0,
+        y: 1.0,
+        z: 1.0,
+    };
 
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
@@ -314,14 +338,109 @@ impl Mul<f32> for Vec3 {
 pub struct Ray3 {
     pub origin: Vec3,
     pub direction: Vec3,
+    pub reciprical: Vec3,
 }
 
 impl Ray3 {
     pub fn new(origin: Vec3, direction: Vec3) -> Self {
-        Self { origin, direction }
+        Self {
+            origin,
+            direction,
+            reciprical: direction
+                .into_iter()
+                .map(|v| if v == 0.0 { f32::INFINITY } else { v.recip() })
+                .collect(),
+        }
     }
 
     pub fn at(&self, t: f32) -> Vec3 {
         self.origin + self.direction * Vec3::splat(t)
+    }
+}
+
+impl IntoIterator for IVec3 {
+    type Item = i32;
+    type IntoIter = std::array::IntoIter<i32, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [self.x, self.y, self.z].into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a IVec3 {
+    type Item = i32;
+    type IntoIter = std::array::IntoIter<i32, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [self.x, self.y, self.z].into_iter()
+    }
+}
+
+impl std::iter::FromIterator<i32> for IVec3 {
+    fn from_iter<I: IntoIterator<Item = i32>>(iter: I) -> Self {
+        let mut iter = iter.into_iter();
+        Self {
+            x: iter.next().unwrap_or(0),
+            y: iter.next().unwrap_or(0),
+            z: iter.next().unwrap_or(0),
+        }
+    }
+}
+
+impl IntoIterator for UVec3 {
+    type Item = u32;
+    type IntoIter = std::array::IntoIter<u32, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [self.x, self.y, self.z].into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a UVec3 {
+    type Item = u32;
+    type IntoIter = std::array::IntoIter<u32, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [self.x, self.y, self.z].into_iter()
+    }
+}
+
+impl std::iter::FromIterator<u32> for UVec3 {
+    fn from_iter<I: IntoIterator<Item = u32>>(iter: I) -> Self {
+        let mut iter = iter.into_iter();
+        Self {
+            x: iter.next().unwrap_or(0),
+            y: iter.next().unwrap_or(0),
+            z: iter.next().unwrap_or(0),
+        }
+    }
+}
+
+impl IntoIterator for Vec3 {
+    type Item = f32;
+    type IntoIter = std::array::IntoIter<f32, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [self.x, self.y, self.z].into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Vec3 {
+    type Item = f32;
+    type IntoIter = std::array::IntoIter<f32, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [self.x, self.y, self.z].into_iter()
+    }
+}
+
+impl std::iter::FromIterator<f32> for Vec3 {
+    fn from_iter<I: IntoIterator<Item = f32>>(iter: I) -> Self {
+        let mut iter = iter.into_iter();
+        Self {
+            x: iter.next().unwrap_or(0.0),
+            y: iter.next().unwrap_or(0.0),
+            z: iter.next().unwrap_or(0.0),
+        }
     }
 }
