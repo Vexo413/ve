@@ -8,34 +8,37 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
-pub enum WorldRequest {
+pub enum GenRequest {
     GenerateChunks { x: i32, z: i32, ys: Vec<i32> },
 }
 
-pub enum WorldResponse {
+pub enum GenResponse {
     ChunksGenerated { chunks: Vec<(IVec3, Arc<Chunk>)> },
 }
 
 pub struct World {
     pub chunks: HashMap<IVec3, Arc<Chunk>>,
     pub render_distance: i32,
-    gen_request_sender: Sender<WorldRequest>,
-    gen_response_receiver: Receiver<WorldResponse>,
+    gen_request_sender: Sender<GenRequest>,
+    gen_response_receiver: Receiver<GenResponse>,
     io_request_sender: Sender<IORequest>,
     io_response_receiver: Receiver<IOResponse>,
-    pending_chunks: HashSet<IVec3>,
+    generating_chunks: HashSet<IVec3>,
     loading_chunks: HashSet<IVec3>,
+    changed_chunks: HashSet<IVec3>,
+    gen_thread_handle: Option<thread::JoinHandle<()>>,
+    io_thread_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl World {
     pub fn new(render_distance: i32) -> Self {
-        let (gen_request_sender, gen_request_receiver) = channel::<WorldRequest>();
-        let (gen_response_sender, gen_response_receiver) = channel::<WorldResponse>();
+        let (gen_request_sender, gen_request_receiver) = channel::<GenRequest>();
+        let (gen_response_sender, gen_response_receiver) = channel::<GenResponse>();
         let (io_request_sender, io_request_receiver) = channel::<IORequest>();
         let (io_response_sender, io_response_receiver) = channel::<IOResponse>();
 
         // Generator thread
-        thread::spawn(move || {
+        let gen_thread_handle = thread::spawn(move || {
             let mut noise = FastNoiseLite::new();
             noise.set_noise_type(Some(NoiseType::OpenSimplex2));
             noise.set_fractal_type(Some(FractalType::Ridged));
@@ -45,7 +48,7 @@ impl World {
 
             while let Ok(request) = gen_request_receiver.recv() {
                 match request {
-                    WorldRequest::GenerateChunks { x, z, ys } => {
+                    GenRequest::GenerateChunks { x, z, ys } => {
                         let mut heights = [0i32; CHUNK_SIZE2_U];
                         for lx in 0..CHUNK_SIZE {
                             for lz in 0..CHUNK_SIZE {
@@ -65,7 +68,7 @@ impl World {
                             generated_chunks.push((position, arc_chunk));
                         }
 
-                        let _ = gen_response_sender.send(WorldResponse::ChunksGenerated {
+                        let _ = gen_response_sender.send(GenResponse::ChunksGenerated {
                             chunks: generated_chunks,
                         });
                     }
@@ -74,7 +77,7 @@ impl World {
         });
 
         // IO thread
-        thread::spawn(move || {
+        let io_thread_handle = thread::spawn(move || {
             while let Ok(request) = io_request_receiver.recv() {
                 match request {
                     IORequest::LoadChunk(position) => {
@@ -99,8 +102,35 @@ impl World {
             gen_response_receiver,
             io_request_sender,
             io_response_receiver,
-            pending_chunks: HashSet::new(),
+            generating_chunks: HashSet::new(),
             loading_chunks: HashSet::new(),
+            changed_chunks: HashSet::new(),
+            gen_thread_handle: Some(gen_thread_handle),
+            io_thread_handle: Some(io_thread_handle),
+        }
+    }
+
+    pub fn shutdown(self) {
+        // Save all changed chunks
+        for position in self.changed_chunks {
+            if let Some(chunk) = self.chunks.get(&position) {
+                let _ = self.io_request_sender.send(IORequest::SaveChunk {
+                    position,
+                    chunk: chunk.clone(),
+                });
+            }
+        }
+
+        // Drop senders to signal threads to exit
+        drop(self.gen_request_sender);
+        drop(self.io_request_sender);
+
+        // Join threads
+        if let Some(handle) = self.gen_thread_handle {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.io_thread_handle {
+            let _ = handle.join();
         }
     }
 
@@ -108,14 +138,10 @@ impl World {
         // Process generator responses
         while let Ok(response) = self.gen_response_receiver.try_recv() {
             match response {
-                WorldResponse::ChunksGenerated { chunks } => {
+                GenResponse::ChunksGenerated { chunks } => {
                     for (position, chunk) in chunks {
-                        if self.pending_chunks.remove(&position) {
+                        if self.generating_chunks.remove(&position) {
                             // Save newly generated chunk to disk
-                            let _ = self.io_request_sender.send(IORequest::SaveChunk {
-                                position,
-                                chunk: chunk.clone(),
-                            });
                             self.chunks.insert(position, chunk);
                         }
                     }
@@ -129,13 +155,13 @@ impl World {
                 IOResponse::ChunkLoaded(pos, chunk) => {
                     self.loading_chunks.remove(&pos);
                     if let Some(chunk) = chunk {
-                        if self.pending_chunks.remove(&pos) {
+                        if self.generating_chunks.remove(&pos) {
                             self.chunks.insert(pos, chunk);
                         }
                     } else {
                         // Not found on disk, generate it
-                        if self.pending_chunks.contains(&pos) {
-                            let _ = self.gen_request_sender.send(WorldRequest::GenerateChunks {
+                        if self.generating_chunks.contains(&pos) {
+                            let _ = self.gen_request_sender.send(GenRequest::GenerateChunks {
                                 x: pos.x,
                                 z: pos.z,
                                 ys: vec![pos.y],
@@ -154,9 +180,7 @@ impl World {
             new_chunk.voxels = [0u8; CHUNK_SIZE3_U];
             let chunk = Arc::new(new_chunk);
             self.chunks.insert(position, chunk.clone());
-            let _ = self
-                .io_request_sender
-                .send(IORequest::SaveChunk { position, chunk });
+            self.changed_chunks.insert(position);
         }
     }
 
@@ -170,15 +194,17 @@ impl World {
 
             if !keep {
                 // Save chunk on unload
-                let _ = self.io_request_sender.send(IORequest::SaveChunk {
-                    position: *position,
-                    chunk: chunk.clone(),
-                });
+                if self.changed_chunks.remove(position) {
+                    let _ = self.io_request_sender.send(IORequest::SaveChunk {
+                        position: *position,
+                        chunk: chunk.clone(),
+                    });
+                }
             }
             keep
         });
         // Also clean up pending chunks that are now out of range
-        self.pending_chunks.retain(|position| {
+        self.generating_chunks.retain(|position| {
             (position.x - center.x).abs() <= render_distance
                 && (position.y - center.y).abs() <= render_distance
                 && (position.z - center.z).abs() <= render_distance
@@ -198,9 +224,9 @@ impl World {
                     let y = center.y + y_offset;
                     let position = IVec3::new(x, y, z);
                     if !self.chunks.contains_key(&position)
-                        && !self.pending_chunks.contains(&position)
+                        && !self.generating_chunks.contains(&position)
                     {
-                        self.pending_chunks.insert(position);
+                        self.generating_chunks.insert(position);
                         self.loading_chunks.insert(position);
                         let _ = self.io_request_sender.send(IORequest::LoadChunk(position));
                     }

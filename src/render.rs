@@ -857,7 +857,9 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        let state = self.state.as_mut().unwrap();
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
         if state.camera_controller.process_events(&event) {
             return;
         }
@@ -922,6 +924,9 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::CloseRequested => {
+                if let Some(state) = self.state.take() {
+                    state.world.shutdown();
+                }
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
