@@ -244,6 +244,7 @@ struct State {
     frame_count: u32,
     fps: u32,
     atlas_bind_group: wgpu::BindGroup,
+    dirty: bool,
 }
 
 impl State {
@@ -561,6 +562,7 @@ impl State {
             frame_count: 0,
             fps: 0,
             atlas_bind_group,
+            dirty: true,
         };
 
         state.configure_surface();
@@ -584,8 +586,12 @@ impl State {
         self.world.update_load_area(camera_chunk_position);
 
         // Remove chunks that are no longer in the world
+        let original_size = self.chunks.len();
         self.chunks
             .retain(|position, _| self.world.chunks.contains_key(position));
+        if self.chunks.len() != original_size {
+            self.dirty = true;
+        }
 
         // Add new chunks
         let range = -RENDER_DISTANCE..=RENDER_DISTANCE;
@@ -611,16 +617,20 @@ impl State {
                     // Skip empty chunks
                     if instances.iter().all(|v| v.is_empty()) {
                         self.chunks.insert(position, None);
+                        self.dirty = true;
                         continue;
                     }
 
                     self.chunks
                         .insert(position, Some(ChunkMeshData { instances }));
+                    self.dirty = true;
                 }
             }
         }
 
-        self.rebuild_gpu_buffers();
+        if self.dirty {
+            self.rebuild_gpu_buffers();
+        }
     }
 
     fn rebuild_gpu_buffers(&mut self) {
@@ -668,6 +678,7 @@ impl State {
             self.total_instances = 0;
             self.instance_buffer = None;
             self.chunks_storage_bind_group = None;
+            self.dirty = false;
             return;
         }
 
@@ -698,6 +709,8 @@ impl State {
                     resource: storage_buffer.as_entire_binding(),
                 }],
             }));
+
+        self.dirty = false;
     }
 
     fn configure_surface(&self) {
@@ -738,8 +751,9 @@ impl State {
             for x in -1..2 {
                 for y in -1..2 {
                     for z in -1..2 {
-                        self.chunks
-                            .remove(&(camera_chunk_position + IVec3::new(x, y, z)));
+                        if self.chunks.remove(&(camera_chunk_position + IVec3::new(x, y, z))).is_some() {
+                            self.dirty = true;
+                        }
                     }
                 }
             }
@@ -848,6 +862,10 @@ struct App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_some() {
+            return;
+        }
+
         let window = Arc::new(
             event_loop
                 .create_window(Window::default_attributes())
@@ -898,7 +916,9 @@ impl ApplicationHandler for App {
                                 for y in -1..2 {
                                     for z in -1..2 {
                                         let chunk_pos = base_chunk_pos + IVec3::new(x, y, z);
-                                        state.chunks.remove(&chunk_pos);
+                                        if state.chunks.remove(&chunk_pos).is_some() {
+                                            state.dirty = true;
+                                        }
                                     }
                                 }
                             }
