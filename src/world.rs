@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, ChunkRefs};
+use crate::chunk::{Chunk, ChunkRefs, VoxelType};
 use crate::constants::*;
 use crate::io::{IORequest, IOResponse, load_chunk, save_chunk};
 use crate::position::IVec3;
@@ -177,22 +177,22 @@ impl World {
     pub fn clear_chunk(&mut self, position: IVec3) {
         if let Some(chunk) = self.chunks.get_mut(&position) {
             let mut new_chunk = (**chunk).clone();
-            new_chunk.voxels = [0u8; CHUNK_SIZE3_U];
+            new_chunk.voxels = [0u32; CHUNK_SIZE3_U];
             let chunk = Arc::new(new_chunk);
             self.chunks.insert(position, chunk.clone());
             self.changed_chunks.insert(position);
         }
     }
 
-    pub fn set_block(&mut self, global_pos: IVec3, block: crate::chunk::BlockType) {
-        let chunk_pos = global_pos.to_chunk_pos();
+    pub fn set_voxel(&mut self, global_pos: IVec3, voxel: VoxelType) {
+        let chunk_position = global_pos.to_chunk_pos();
         let local_pos = global_pos.to_local_pos();
 
-        if let Some(chunk) = self.chunks.get(&chunk_pos) {
+        if let Some(chunk) = self.chunks.get(&chunk_position) {
             let mut new_chunk = (**chunk).clone();
-            new_chunk.voxels[local_pos.to_index() as usize] = block as u8;
-            self.chunks.insert(chunk_pos, Arc::new(new_chunk));
-            self.changed_chunks.insert(chunk_pos);
+            new_chunk.voxels[local_pos.to_index() as usize] = voxel as u32;
+            self.chunks.insert(chunk_position, Arc::new(new_chunk));
+            self.changed_chunks.insert(chunk_position);
         }
     }
 

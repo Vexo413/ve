@@ -1,4 +1,5 @@
 use crate::chunk::Chunk;
+use crate::constants::CHUNK_SIZE3_U;
 use crate::position::IVec3;
 use std::fs;
 use std::io::{Read, Write};
@@ -26,7 +27,8 @@ pub fn save_chunk(position: IVec3, chunk: &Chunk) -> std::io::Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let compressed_data = zstd::encode_all(&chunk.voxels[..], 3)?;
+    let voxels_u8: Vec<u8> = chunk.voxels.iter().map(|&v| v as u8).collect();
+    let compressed_data = zstd::encode_all(&voxels_u8[..], 3)?;
 
     let mut file = fs::File::create(path)?;
     file.write_all(&compressed_data)?;
@@ -45,15 +47,25 @@ pub fn load_chunk(pos: IVec3) -> std::io::Result<Option<Chunk>> {
     file.read_to_end(&mut compressed_data)?;
 
     let decompressed_data = zstd::decode_all(&compressed_data[..])?;
-    let mut voxels = [0u8; crate::constants::CHUNK_SIZE3_U];
+    let mut voxels = [0u32; CHUNK_SIZE3_U];
 
-    if decompressed_data.len() != voxels.len() {
+    if decompressed_data.len() == voxels.len() {
+        for (i, &v) in decompressed_data.iter().enumerate() {
+            voxels[i] = v as u32;
+        }
+    } else if decompressed_data.len() == voxels.len() * 4 {
+        voxels.copy_from_slice(bytemuck::cast_slice(&decompressed_data));
+    } else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "Decompressed data size mismatch",
+            format!(
+                "Decompressed data size mismatch: expected {} or {}, got {}",
+                voxels.len(),
+                voxels.len() * 4,
+                decompressed_data.len()
+            ),
         ));
     }
 
-    voxels.copy_from_slice(&decompressed_data);
     Ok(Some(Chunk { voxels }))
 }

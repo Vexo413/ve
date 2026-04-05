@@ -107,6 +107,18 @@ impl DivAssign for IVec3 {
     }
 }
 
+impl Neg for IVec3 {
+    type Output = Self;
+
+    fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            y: -self.y,
+            z: -self.z,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct UVec3 {
     pub x: u32,

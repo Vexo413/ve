@@ -1,5 +1,5 @@
 use crate::{
-    chunk::{BlockType, Instance, mesh, raycast},
+    chunk::{Instance, VoxelType, mesh, raycast},
     constants::{CHUNK_SIZE, RENDER_DISTANCE},
     position::{IVec3, Ray3, Vec3},
     world::World,
@@ -19,7 +19,8 @@ use winit::{
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuInstance {
-    data: u32,
+    data1: u32,
+    data2: u32,
     chunk_id: u32,
 }
 
@@ -475,6 +476,11 @@ impl State {
                     offset: 4,
                     shader_location: 1,
                 },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Uint32,
+                    offset: 8,
+                    shader_location: 2,
+                },
             ],
             step_mode: wgpu::VertexStepMode::Instance,
         };
@@ -636,9 +642,10 @@ impl State {
                 let mut face_counts = [0; 6];
                 for (f, instances) in chunk_data.instances.iter().enumerate() {
                     face_counts[f] = instances.len() as u32;
-                    for inst in instances {
+                    for instance in instances {
                         all_instances.push(GpuInstance {
-                            data: inst.0,
+                            data1: instance.0 as u32,         // Cuts higher significance bits off
+                            data2: (instance.0 >> 32) as u32, // Shifts, then cuts off
                             chunk_id: i as u32,
                         });
                     }
@@ -877,14 +884,13 @@ impl ApplicationHandler for App {
                         state.window.set_cursor_visible(false);
                         state.camera_controller.cursor_locked = true;
                     } else {
-                        // Raycast to remove block
                         let direction = state.camera.target - state.camera.eye;
                         let ray = Ray3::new(
                             Vec3::new(state.camera.eye.x, state.camera.eye.y, state.camera.eye.z),
                             Vec3::new(direction.x, direction.y, direction.z),
                         );
                         if let Some(pos) = raycast(ray, &state.world) {
-                            state.world.set_block(pos, BlockType::Empty);
+                            state.world.set_voxel(pos, VoxelType::Empty);
                             // Invalidate chunks to force remesh
                             // Need to invalidate neighbors too if we're meshing boundaries
                             let base_chunk_pos = pos.to_chunk_pos();

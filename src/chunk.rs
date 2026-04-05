@@ -5,33 +5,33 @@ use crate::world::World;
 use crate::{constants::*, position::IVec3};
 use std::sync::Arc;
 
-#[repr(transparent)]
+#[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, PartialEq, Eq)]
-pub struct Instance(pub u32);
+pub struct Instance(pub u64);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub enum BlockType {
+pub enum VoxelType {
     Empty = 0,
     Dirt = 1,
     Grass = 2,
     Stone = 3,
 }
 
-impl From<u8> for BlockType {
-    fn from(v: u8) -> Self {
+impl From<u32> for VoxelType {
+    fn from(v: u32) -> Self {
         match v {
-            1 => BlockType::Dirt,
-            2 => BlockType::Grass,
-            3 => BlockType::Stone,
-            _ => BlockType::Empty,
+            1 => VoxelType::Dirt,
+            2 => VoxelType::Grass,
+            3 => VoxelType::Stone,
+            _ => VoxelType::Empty,
         }
     }
 }
 
-impl BlockType {
+impl VoxelType {
     pub fn is_solid(&self) -> bool {
-        *self != BlockType::Empty
+        *self != VoxelType::Empty
     }
 }
 
@@ -86,12 +86,12 @@ pub fn greedy_mesh(layer: &[u32; 32]) -> Vec<Quad> {
 
 #[derive(Copy, Clone)]
 pub struct Chunk {
-    pub voxels: [u8; CHUNK_SIZE3_U],
+    pub voxels: [u32; CHUNK_SIZE3_U],
 }
 
 impl Chunk {
     pub fn new_terrain(position: IVec3, heights: &[i32; CHUNK_SIZE2_U]) -> Self {
-        let mut voxels = [BlockType::Empty as u8; CHUNK_SIZE3_U];
+        let mut voxels = [VoxelType::Empty as u32; CHUNK_SIZE3_U];
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
                 let h = heights[x as usize * CHUNK_SIZE_U + z as usize];
@@ -99,11 +99,11 @@ impl Chunk {
                     let dirt_level = (x as f64).sin() * (z as f64).cos() + 12.0;
                     let global_y = position.y * CHUNK_SIZE as i32 + y as i32;
                     if global_y < h && global_y >= dirt_level as i32 {
-                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Stone as u8;
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = VoxelType::Stone as u32;
                     } else if global_y < h {
-                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Dirt as u8;
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = VoxelType::Dirt as u32;
                     } else if global_y == h {
-                        voxels[UVec3::new(x, y, z).to_index() as usize] = BlockType::Grass as u8;
+                        voxels[UVec3::new(x, y, z).to_index() as usize] = VoxelType::Grass as u32;
                     }
                 }
             }
@@ -111,8 +111,8 @@ impl Chunk {
         Self { voxels }
     }
 
-    pub fn get(&self, position: UVec3) -> BlockType {
-        BlockType::from(
+    pub fn get(&self, position: UVec3) -> VoxelType {
+        VoxelType::from(
             self.voxels[position.x as usize * CHUNK_SIZE2_U
                 + position.y as usize * CHUNK_SIZE_U
                 + position.z as usize],
@@ -125,11 +125,11 @@ pub struct ChunkRefs {
 }
 
 impl ChunkRefs {
-    fn get_from_chunk(&self, position: UVec3, chunk_index: u32) -> BlockType {
+    fn get_from_chunk(&self, position: UVec3, chunk_index: u32) -> VoxelType {
         self.refs[chunk_index as usize].get(position)
     }
 
-    pub fn get(&self, position: IVec3) -> BlockType {
+    pub fn get(&self, position: IVec3) -> VoxelType {
         let x = (position.x + 32) as u32;
         let y = (position.y + 32) as u32;
         let z = (position.z + 32) as u32;
@@ -144,14 +144,70 @@ impl ChunkRefs {
         self.get_from_chunk(UVec3::new(x, y, z), chunk_index)
     }
 
-    pub fn get_only_self(&self, position: UVec3) -> BlockType {
+    pub fn get_only_self(&self, position: UVec3) -> VoxelType {
         self.get_from_chunk(position, 13)
+    }
+
+    pub fn calculate_ao(&self, pos: UVec3, axis: usize) -> u32 {
+        let p = IVec3::new(pos.x as i32, pos.y as i32, pos.z as i32);
+        let (axis_offset, x_offset, z_offset) = match axis {
+            0 => (
+                IVec3::new(1, 0, 0),
+                IVec3::new(0, 1, 0),
+                IVec3::new(0, 0, 1),
+            ), // PosX
+            1 => (
+                IVec3::new(-1, 0, 0),
+                IVec3::new(0, 0, 1),
+                IVec3::new(0, 1, 0),
+            ), // NegX
+            2 => (
+                IVec3::new(0, 1, 0),
+                IVec3::new(0, 0, 1),
+                IVec3::new(1, 0, 0),
+            ), // PosY
+            3 => (
+                IVec3::new(0, -1, 0),
+                IVec3::new(1, 0, 0),
+                IVec3::new(0, 0, 1),
+            ), // NegY
+            4 => (
+                IVec3::new(0, 0, 1),
+                IVec3::new(1, 0, 0),
+                IVec3::new(0, 1, 0),
+            ), // PosZ
+            _ => (
+                IVec3::new(0, 0, -1),
+                IVec3::new(0, 1, 0),
+                IVec3::new(1, 0, 0),
+            ), // NegZ
+        };
+
+        let mut ao_packed = 0u32;
+        for i in 0..2 {
+            for j in 0..2 {
+                let x = if i == 0 { -x_offset } else { x_offset };
+                let z = if j == 0 { -z_offset } else { z_offset };
+
+                let x_solid = self.get(p + axis_offset + x).is_solid();
+                let z_solid = self.get(p + axis_offset + z).is_solid();
+                let xz_solid = self.get(p + axis_offset + x + z).is_solid();
+
+                let ao = if x_solid && z_solid {
+                    0
+                } else {
+                    3 - (x_solid as u32 + z_solid as u32 + xz_solid as u32)
+                };
+                ao_packed |= ao << (2 * (j * 2 + i));
+            }
+        }
+        ao_packed
     }
 }
 
 pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
-    if chunk_refs.refs[13].voxels == [BlockType::Empty as u8; CHUNK_SIZE3_U] {
-        return [const { Vec::new() }; 6];
+    if chunk_refs.refs[13].voxels == [VoxelType::Empty as u32; CHUNK_SIZE3_U] {
+        return std::array::repeat(Vec::new());
     }
 
     let mut occupied_x = [0u64; CHUNK_SIZE2_U];
@@ -193,7 +249,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
         }
     }
 
-    let mut data: [HashMap<u32, HashMap<u32, [u32; 32]>>; 6] = [
+    let mut data: [HashMap<(u32, u32), HashMap<u32, [u32; 32]>>; 6] = [
         HashMap::new(),
         HashMap::new(),
         HashMap::new(),
@@ -233,9 +289,10 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
 
                     let current_voxel = chunk_refs.get_only_self(position);
                     let texture_id = current_voxel as u32 - 1;
+                    let ao = chunk_refs.calculate_ao(position, axis);
 
                     let layer_data = data[axis]
-                        .entry(texture_id)
+                        .entry((texture_id, ao))
                         .or_default()
                         .entry(k)
                         .or_default();
@@ -255,8 +312,8 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
             4 => FaceDirection::PosZ,
             _ => FaceDirection::NegZ,
         };
-        for (texture_id, block_data) in axis_data.into_iter() {
-            for (layer_index, layer) in block_data.into_iter() {
+        for ((texture_id, ao), voxel_data) in axis_data.into_iter() {
+            for (layer_index, layer) in voxel_data.into_iter() {
                 let quads_from_axis = greedy_mesh(layer);
                 for quad in quads_from_axis {
                     let x = quad.x;
@@ -264,26 +321,28 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
                     let w = quad.w;
                     let h = quad.h;
 
-                    let mut encoded_data: u32 = 0;
+                    let mut encoded_data: u64 = 0;
                     let position = match direction {
                         FaceDirection::PosX | FaceDirection::NegX => UVec3::new(*layer_index, x, y),
                         FaceDirection::PosY | FaceDirection::NegY => UVec3::new(y, *layer_index, x),
                         FaceDirection::PosZ | FaceDirection::NegZ => UVec3::new(x, y, *layer_index),
                     };
                     // Unpack data
-                    // WWWWWHHHHHTTTTTTTZZZZZYYYYYXXXXX
-                    // X: 0-4 (5 bits)
-                    // Y: 5-9 (5 bits)
-                    // Z: 10-14 (5 bits)
-                    // T: 15-21 (7 bits) - texture data
-                    // H: 22-26 (5 bits)
-                    // W: 27-31 (5 bits)
-                    encoded_data |= position.x;
-                    encoded_data |= position.y << 5;
-                    encoded_data |= position.z << 10;
-                    encoded_data |= (*texture_id) << 15;
-                    encoded_data |= (h - 1) << 22; // it won't fit in five bits
-                    encoded_data |= (w - 1) << 27; // it won't fit in five bits
+                    // TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTAAAAAAAAHHHHHWWWWWZZZZZYYYYYXXXXX
+                    // X: 0..5 (5 bits)
+                    // Y: 5..10 (5 bits)
+                    // Z: 10..15 (5 bits)
+                    // W: 15..20 (5 bits)
+                    // H: 20..25 (5 bits)
+                    // A: 25..33 (8 bits)
+                    // T: 33..64 (31 bits)
+                    encoded_data |= position.x as u64;
+                    encoded_data |= (position.y as u64) << 5;
+                    encoded_data |= (position.z as u64) << 10;
+                    encoded_data |= (w as u64 - 1) << 15; // it won't fit in five bits
+                    encoded_data |= (h as u64 - 1) << 20; // it won't fit in five bits
+                    encoded_data |= (*ao as u64) << 25;
+                    encoded_data |= (*texture_id as u64) << 33;
                     instances[axis_index].push(Instance(encoded_data));
                 }
             }
