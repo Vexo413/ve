@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 
 use crate::position::{Ray3, UVec3, Vec3};
-use crate::world::World;
+use crate::world::WorldState;
 use crate::{constants::*, position::IVec3};
 use std::sync::Arc;
 
@@ -351,7 +351,7 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
     instances
 }
 
-pub fn raycast(ray: Ray3, world: &World) -> Option<IVec3> {
+pub fn raycast(ray: Ray3, world: &WorldState) -> Option<IVec3> {
     let mut position: IVec3 = ray.origin.into_iter().map(|v| v as i32).collect();
 
     let step: IVec3 = ray

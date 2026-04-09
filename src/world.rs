@@ -16,7 +16,7 @@ pub enum GenResponse {
     ChunksGenerated { chunks: Vec<(IVec3, Arc<Chunk>)> },
 }
 
-pub struct World {
+pub struct WorldState {
     pub chunks: HashMap<IVec3, Arc<Chunk>>,
     pub render_distance: i32,
     gen_request_sender: Sender<GenRequest>,
@@ -30,7 +30,7 @@ pub struct World {
     io_thread_handle: Option<thread::JoinHandle<()>>,
 }
 
-impl World {
+impl WorldState {
     pub fn new(render_distance: i32) -> Self {
         let (gen_request_sender, gen_request_receiver) = channel::<GenRequest>();
         let (gen_response_sender, gen_response_receiver) = channel::<GenResponse>();

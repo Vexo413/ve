@@ -49,11 +49,7 @@ pub fn load_chunk(pos: IVec3) -> std::io::Result<Option<Chunk>> {
     let decompressed_data = zstd::decode_all(&compressed_data[..])?;
     let mut voxels = [0u32; CHUNK_SIZE3_U];
 
-    if decompressed_data.len() == voxels.len() {
-        for (i, &v) in decompressed_data.iter().enumerate() {
-            voxels[i] = v as u32;
-        }
-    } else if decompressed_data.len() == voxels.len() * 4 {
+    if decompressed_data.len() == voxels.len() * 4 {
         voxels.copy_from_slice(bytemuck::cast_slice(&decompressed_data));
     } else {
         return Err(std::io::Error::new(

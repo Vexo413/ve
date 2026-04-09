@@ -2,7 +2,7 @@ use crate::{
     chunk::{Instance, VoxelType, mesh, raycast},
     constants::{CHUNK_SIZE, RENDER_DISTANCE},
     position::{IVec3, Ray3, Vec3},
-    world::World,
+    world::WorldState,
 };
 use cgmath::Vector3;
 use hashbrown::HashMap;
@@ -74,7 +74,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 1.0,
 );
 
-struct CameraController {
+struct Controller {
     speed: f32,
     sensitivity: f32,
     is_down_pressed: bool,
@@ -83,13 +83,13 @@ struct CameraController {
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
-    is_c_pressed: bool,
+    is_chunk_clear_pressed: bool,
     yaw: f32,
     pitch: f32,
     cursor_locked: bool,
 }
 
-impl CameraController {
+impl Controller {
     fn new(speed: f32, sensitivity: f32) -> Self {
         Self {
             speed,
@@ -100,7 +100,7 @@ impl CameraController {
             is_backward_pressed: false,
             is_left_pressed: false,
             is_right_pressed: false,
-            is_c_pressed: false,
+            is_chunk_clear_pressed: false,
             yaw: -90.0,
             pitch: 0.0,
             cursor_locked: false,
@@ -129,7 +129,7 @@ impl CameraController {
                         true
                     }
                     winit::keyboard::KeyCode::KeyC => {
-                        self.is_c_pressed = is_pressed;
+                        self.is_chunk_clear_pressed = is_pressed;
                         true
                     }
                     winit::keyboard::KeyCode::KeyW | winit::keyboard::KeyCode::ArrowUp => {
@@ -216,6 +216,21 @@ struct ChunkMeshData {
 }
 
 struct State {
+    core_state: CoreState,
+    render_state: RenderState,
+    world_state: WorldState,
+    player_state: PlayerState,
+    time_state: TimeState,
+}
+
+struct TimeState {
+    fps_timer: Instant,
+    last_frame_instant: Instant,
+    frame_count: u32,
+    fps: u32,
+}
+
+struct CoreState {
     instance: wgpu::Instance,
     window: Arc<Window>,
     device: wgpu::Device,
@@ -223,28 +238,27 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     surface: wgpu::Surface<'static>,
     surface_format: wgpu::TextureFormat,
+}
+
+struct RenderState {
     render_pipeline: wgpu::RenderPipeline,
     depth_texture_view: wgpu::TextureView,
     index_buffer: wgpu::Buffer,
-
-    chunks_storage_layout: wgpu::BindGroupLayout,
-    chunks_storage_bind_group: Option<wgpu::BindGroup>,
+    chunks_bind_group_layout: wgpu::BindGroupLayout,
+    chunks_bind_group: Option<wgpu::BindGroup>,
     instance_buffer: Option<wgpu::Buffer>,
     total_instances: u32,
+    chunk_meshes: HashMap<IVec3, Option<ChunkMeshData>>,
+    atlas_bind_group: wgpu::BindGroup,
+    dirty: bool,
+}
 
-    chunks: HashMap<IVec3, Option<ChunkMeshData>>,
-    world: World,
+struct PlayerState {
     camera: Camera,
-    camera_controller: CameraController,
+    controller: Controller,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    fps_timer: Instant,
-    last_frame_instant: Instant,
-    frame_count: u32,
-    fps: u32,
-    atlas_bind_group: wgpu::BindGroup,
-    dirty: bool,
 }
 
 impl State {
@@ -530,39 +544,45 @@ impl State {
         });
 
         // WORLD
-        let mut world = World::new(RENDER_DISTANCE);
+        let mut world = WorldState::new(RENDER_DISTANCE);
         world.update_load_area(IVec3::new(0, 0, 0));
 
         let state = State {
-            instance,
-            window,
-            device,
-            queue,
-            size,
-            surface,
-            surface_format,
-            render_pipeline,
-
-            depth_texture_view,
-            index_buffer,
-            chunks_storage_layout,
-            chunks_storage_bind_group: None,
-            instance_buffer: None,
-            total_instances: 0,
-
-            chunks: HashMap::new(),
-            world,
-            camera,
-            camera_controller: CameraController::new(10.0, 0.1),
-            camera_uniform,
-            camera_buffer,
-            camera_bind_group,
-            fps_timer: Instant::now(),
-            last_frame_instant: Instant::now(),
-            frame_count: 0,
-            fps: 0,
-            atlas_bind_group,
-            dirty: true,
+            core_state: CoreState {
+                instance,
+                window,
+                device,
+                queue,
+                size,
+                surface,
+                surface_format,
+            },
+            render_state: RenderState {
+                render_pipeline,
+                depth_texture_view,
+                index_buffer,
+                chunks_bind_group_layout: chunks_storage_layout,
+                chunks_bind_group: None,
+                instance_buffer: None,
+                total_instances: 0,
+                chunk_meshes: HashMap::new(),
+                atlas_bind_group,
+                dirty: true,
+            },
+            world_state: world,
+            player_state: PlayerState {
+                camera,
+                controller: Controller::new(10.0, 0.1),
+                camera_uniform,
+                camera_buffer,
+                camera_bind_group,
+            },
+            time_state: TimeState {
+                fps_timer: Instant::now(),
+                last_frame_instant: Instant::now(),
+                frame_count: 0,
+                fps: 0,
+            },
         };
 
         state.configure_surface();
@@ -570,27 +590,28 @@ impl State {
     }
 
     fn get_window(&self) -> &Window {
-        &self.window
+        &self.core_state.window
     }
 
     fn sync_world_to_gpu(&mut self) {
         // Process any newly generated chunks
-        self.world.process_responses();
+        self.world_state.process_responses();
 
         // Update world based on camera position
         let camera_chunk_position = IVec3::new(
-            (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
-            (self.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
-            (self.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
+            (self.player_state.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
+            (self.player_state.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
+            (self.player_state.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
         );
-        self.world.update_load_area(camera_chunk_position);
+        self.world_state.update_load_area(camera_chunk_position);
 
         // Remove chunks that are no longer in the world
-        let original_size = self.chunks.len();
-        self.chunks
-            .retain(|position, _| self.world.chunks.contains_key(position));
-        if self.chunks.len() != original_size {
-            self.dirty = true;
+        let original_size = self.render_state.chunk_meshes.len();
+        self.render_state
+            .chunk_meshes
+            .retain(|position, _| self.world_state.chunks.contains_key(position));
+        if self.render_state.chunk_meshes.len() != original_size {
+            self.render_state.dirty = true;
         }
 
         // Add new chunks
@@ -602,12 +623,12 @@ impl State {
                     let position = camera_chunk_position + IVec3::new(x, y, z);
 
                     // Skip chunks we already have
-                    if self.chunks.contains_key(&position) {
+                    if self.render_state.chunk_meshes.contains_key(&position) {
                         continue;
                     }
 
                     // Skip if no chunk refs
-                    let refs = match self.world.get_chunk_refs(position) {
+                    let refs = match self.world_state.get_chunk_refs(position) {
                         Some(r) => r,
                         None => continue,
                     };
@@ -616,19 +637,18 @@ impl State {
 
                     // Skip empty chunks
                     if instances.iter().all(|v| v.is_empty()) {
-                        self.chunks.insert(position, None);
-                        self.dirty = true;
-                        continue;
+                        self.render_state.chunk_meshes.insert(position, None);
+                    } else {
+                        self.render_state
+                            .chunk_meshes
+                            .insert(position, Some(ChunkMeshData { instances }));
                     }
-
-                    self.chunks
-                        .insert(position, Some(ChunkMeshData { instances }));
-                    self.dirty = true;
+                    self.render_state.dirty = true;
                 }
             }
         }
 
-        if self.dirty {
+        if self.render_state.dirty {
             self.rebuild_gpu_buffers();
         }
     }
@@ -639,7 +659,8 @@ impl State {
 
         // Sort positions to ensure deterministic order (though not strictly required)
         let positions: Vec<_> = self
-            .chunks
+            .render_state
+            .chunk_meshes
             .iter()
             .filter_map(|(position, data)| data.as_ref().map(|_| *position))
             .collect();
@@ -647,7 +668,7 @@ impl State {
 
         // Create `GpuChunkData`s and combine all instances into `GpuInstance`s
         for (i, position) in positions.into_iter().enumerate() {
-            if let Some(chunk_data) = self.chunks.get(&position).unwrap() {
+            if let Some(chunk_data) = self.render_state.chunk_meshes.get(&position).unwrap() {
                 let base_instance_id = all_instances.len() as u32;
                 let mut face_counts = [0; 6];
                 for (f, instances) in chunk_data.instances.iter().enumerate() {
@@ -675,16 +696,16 @@ impl State {
         }
 
         if all_instances.is_empty() {
-            self.total_instances = 0;
-            self.instance_buffer = None;
-            self.chunks_storage_bind_group = None;
-            self.dirty = false;
+            self.render_state.total_instances = 0;
+            self.render_state.instance_buffer = None;
+            self.render_state.chunks_bind_group = None;
+            self.render_state.dirty = false;
             return;
         }
 
-        self.total_instances = all_instances.len() as u32;
+        self.render_state.total_instances = all_instances.len() as u32;
 
-        self.instance_buffer = Some(self.device.create_buffer_init(
+        self.render_state.instance_buffer = Some(self.core_state.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Global Instance Buffer"),
                 contents: bytemuck::cast_slice(&all_instances),
@@ -692,86 +713,102 @@ impl State {
             },
         ));
 
-        let storage_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Chunks Storage Buffer"),
-                contents: bytemuck::cast_slice(&chunks_data),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+        let storage_buffer =
+            self.core_state
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Chunks Storage Buffer"),
+                    contents: bytemuck::cast_slice(&chunks_data),
+                    usage: wgpu::BufferUsages::STORAGE,
+                });
 
-        self.chunks_storage_bind_group =
-            Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.render_state.chunks_bind_group = Some(self.core_state.device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
                 label: Some("Chunks Storage Bind Group"),
-                layout: &self.chunks_storage_layout,
+                layout: &self.render_state.chunks_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: storage_buffer.as_entire_binding(),
                 }],
-            }));
+            },
+        ));
 
-        self.dirty = false;
+        self.render_state.dirty = false;
     }
 
     fn configure_surface(&self) {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: self.surface_format,
-            view_formats: vec![self.surface_format.add_srgb_suffix()],
+            format: self.core_state.surface_format,
+            view_formats: vec![self.core_state.surface_format.add_srgb_suffix()],
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            width: self.size.width,
-            height: self.size.height,
+            width: self.core_state.size.width,
+            height: self.core_state.size.height,
             desired_maximum_frame_latency: 2,
             present_mode: wgpu::PresentMode::AutoVsync,
         };
-        self.surface.configure(&self.device, &surface_config);
+        self.core_state
+            .surface
+            .configure(&self.core_state.device, &surface_config);
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            self.size = new_size;
+            self.core_state.size = new_size;
             self.configure_surface();
-            self.depth_texture_view =
-                Self::create_depth_texture(&self.device, &self.size, "depth_texture");
+            self.render_state.depth_texture_view = Self::create_depth_texture(
+                &self.core_state.device,
+                &self.core_state.size,
+                "depth_texture",
+            );
         }
     }
 
     fn update(&mut self) {
-        let dt = self.last_frame_instant.elapsed().as_secs_f32();
-        self.last_frame_instant = Instant::now();
+        let dt = self.time_state.last_frame_instant.elapsed().as_secs_f32();
+        self.time_state.last_frame_instant = Instant::now();
 
-        if self.camera_controller.is_c_pressed {
+        if self.player_state.controller.is_chunk_clear_pressed {
             let camera_chunk_position = IVec3::new(
-                (self.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
-                (self.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
-                (self.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
+                (self.player_state.camera.eye.x / CHUNK_SIZE as f32).floor() as i32,
+                (self.player_state.camera.eye.y / CHUNK_SIZE as f32).floor() as i32,
+                (self.player_state.camera.eye.z / CHUNK_SIZE as f32).floor() as i32,
             );
-            self.world.clear_chunk(camera_chunk_position);
+            self.world_state.clear_chunk(camera_chunk_position);
             // Invalidate chunk in render side to force remesh
             for x in -1..2 {
                 for y in -1..2 {
                     for z in -1..2 {
-                        if self.chunks.remove(&(camera_chunk_position + IVec3::new(x, y, z))).is_some() {
-                            self.dirty = true;
+                        if self
+                            .render_state
+                            .chunk_meshes
+                            .remove(&(camera_chunk_position + IVec3::new(x, y, z)))
+                            .is_some()
+                        {
+                            self.render_state.dirty = true;
                         }
                     }
                 }
             }
-            self.camera_controller.is_c_pressed = false; // Reset so it only clears once per press
+            self.player_state.controller.is_chunk_clear_pressed = false; // Reset so it only clears once per press
         }
 
-        self.camera_controller.update_camera(&mut self.camera, dt);
-        self.camera_uniform.update_view_proj(&self.camera);
-        self.queue.write_buffer(
-            &self.camera_buffer,
+        self.player_state
+            .controller
+            .update_camera(&mut self.player_state.camera, dt);
+        self.player_state
+            .camera_uniform
+            .update_view_proj(&self.player_state.camera);
+        self.core_state.queue.write_buffer(
+            &self.player_state.camera_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[self.player_state.camera_uniform]),
         );
         self.sync_world_to_gpu();
     }
 
     fn render(&mut self) {
-        let surface_texture = match self.surface.get_current_texture() {
+        let surface_texture = match self.core_state.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture) => texture,
             wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => return,
             wgpu::CurrentSurfaceTexture::Suboptimal(_) | wgpu::CurrentSurfaceTexture::Outdated => {
@@ -782,7 +819,11 @@ impl State {
                 unreachable!("No error scope registered, so validation errors will panic")
             }
             wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface = self.instance.create_surface(self.window.clone()).unwrap();
+                self.core_state.surface = self
+                    .core_state
+                    .instance
+                    .create_surface(self.core_state.window.clone())
+                    .unwrap();
                 self.configure_surface();
                 return;
             }
@@ -790,11 +831,14 @@ impl State {
         let texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor {
-                format: Some(self.surface_format.add_srgb_suffix()),
+                format: Some(self.core_state.surface_format.add_srgb_suffix()),
                 ..Default::default()
             });
 
-        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let mut encoder = self
+            .core_state
+            .device
+            .create_command_encoder(&Default::default());
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Voxel Render Pass"),
@@ -813,7 +857,7 @@ impl State {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture_view,
+                    view: &self.render_state.depth_texture_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -825,32 +869,37 @@ impl State {
                 multiview_mask: None,
             });
 
-            if let (Some(instance_buffer), Some(storage_bind_group)) =
-                (&self.instance_buffer, &self.chunks_storage_bind_group)
-            {
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, storage_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                render_pass.set_bind_group(2, &self.atlas_bind_group, &[]);
-                render_pass
-                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            if let (Some(instance_buffer), Some(chunks_bind_group)) = (
+                &self.render_state.instance_buffer,
+                &self.render_state.chunks_bind_group,
+            ) {
+                render_pass.set_pipeline(&self.render_state.render_pipeline);
+                render_pass.set_bind_group(0, chunks_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.player_state.camera_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.render_state.atlas_bind_group, &[]);
+                render_pass.set_index_buffer(
+                    self.render_state.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
                 render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
 
-                render_pass.draw_indexed(0..6, 0, 0..self.total_instances);
+                render_pass.draw_indexed(0..6, 0, 0..self.render_state.total_instances);
             }
         }
 
-        self.queue.submit([encoder.finish()]);
-        self.window.pre_present_notify();
+        self.core_state.queue.submit([encoder.finish()]);
+        self.core_state.window.pre_present_notify();
         surface_texture.present();
 
-        self.frame_count += 1;
-        let elapsed = self.fps_timer.elapsed().as_secs_f64();
+        self.time_state.frame_count += 1;
+        let elapsed = self.time_state.fps_timer.elapsed().as_secs_f64();
         if elapsed >= 1.0 {
-            self.fps = self.frame_count;
-            self.frame_count = 0;
-            self.fps_timer = Instant::now();
-            self.window.set_title(&format!("ve - {} FPS", self.fps));
+            self.time_state.fps = self.time_state.frame_count;
+            self.time_state.frame_count = 0;
+            self.time_state.fps_timer = Instant::now();
+            self.core_state
+                .window
+                .set_title(&format!("ve - {} FPS", self.time_state.fps));
         }
     }
 }
@@ -885,7 +934,7 @@ impl ApplicationHandler for App {
         let Some(state) = self.state.as_mut() else {
             return;
         };
-        if state.camera_controller.process_events(&event) {
+        if state.player_state.controller.process_events(&event) {
             return;
         }
         match event {
@@ -895,20 +944,26 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if button_state == winit::event::ElementState::Pressed {
-                    if !state.camera_controller.cursor_locked {
+                    if !state.player_state.controller.cursor_locked {
                         let _ = state
+                            .core_state
                             .window
                             .set_cursor_grab(winit::window::CursorGrabMode::Locked);
-                        state.window.set_cursor_visible(false);
-                        state.camera_controller.cursor_locked = true;
+                        state.core_state.window.set_cursor_visible(false);
+                        state.player_state.controller.cursor_locked = true;
                     } else {
-                        let direction = state.camera.target - state.camera.eye;
+                        let direction =
+                            state.player_state.camera.target - state.player_state.camera.eye;
                         let ray = Ray3::new(
-                            Vec3::new(state.camera.eye.x, state.camera.eye.y, state.camera.eye.z),
+                            Vec3::new(
+                                state.player_state.camera.eye.x,
+                                state.player_state.camera.eye.y,
+                                state.player_state.camera.eye.z,
+                            ),
                             Vec3::new(direction.x, direction.y, direction.z),
                         );
-                        if let Some(pos) = raycast(ray, &state.world) {
-                            state.world.set_voxel(pos, VoxelType::Empty);
+                        if let Some(pos) = raycast(ray, &state.world_state) {
+                            state.world_state.set_voxel(pos, VoxelType::Empty);
                             // Invalidate chunks to force remesh
                             // Need to invalidate neighbors too if we're meshing boundaries
                             let base_chunk_pos = pos.to_chunk_pos();
@@ -916,8 +971,13 @@ impl ApplicationHandler for App {
                                 for y in -1..2 {
                                     for z in -1..2 {
                                         let chunk_pos = base_chunk_pos + IVec3::new(x, y, z);
-                                        if state.chunks.remove(&chunk_pos).is_some() {
-                                            state.dirty = true;
+                                        if state
+                                            .render_state
+                                            .chunk_meshes
+                                            .remove(&chunk_pos)
+                                            .is_some()
+                                        {
+                                            state.render_state.dirty = true;
                                         }
                                     }
                                 }
@@ -938,10 +998,11 @@ impl ApplicationHandler for App {
             } => {
                 if key_state == winit::event::ElementState::Pressed {
                     let _ = state
+                        .core_state
                         .window
                         .set_cursor_grab(winit::window::CursorGrabMode::None);
-                    state.window.set_cursor_visible(true);
-                    state.camera_controller.cursor_locked = false;
+                    state.core_state.window.set_cursor_visible(true);
+                    state.player_state.controller.cursor_locked = false;
                 }
             }
             WindowEvent::KeyboardInput {
@@ -955,7 +1016,7 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if key_state == winit::event::ElementState::Pressed {
-                    state.camera_controller.speed = 10.0;
+                    state.player_state.controller.speed = 10.0;
                 }
             }
             WindowEvent::KeyboardInput {
@@ -969,12 +1030,12 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if key_state == winit::event::ElementState::Pressed {
-                    state.camera_controller.speed = 100.0;
+                    state.player_state.controller.speed = 100.0;
                 }
             }
             WindowEvent::CloseRequested => {
                 if let Some(state) = self.state.take() {
-                    state.world.shutdown();
+                    state.world_state.shutdown();
                 }
                 event_loop.exit();
             }
@@ -985,7 +1046,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Resized(size) => {
                 state.resize(size);
-                state.camera.aspect = size.width as f32 / size.height as f32;
+                state.player_state.camera.aspect = size.width as f32 / size.height as f32;
             }
             _ => (),
         }
@@ -999,7 +1060,10 @@ impl ApplicationHandler for App {
     ) {
         if let winit::event::DeviceEvent::MouseMotion { delta } = event {
             if let Some(state) = self.state.as_mut() {
-                state.camera_controller.process_mouse(delta.0, delta.1);
+                state
+                    .player_state
+                    .controller
+                    .process_mouse(delta.0, delta.1);
             }
         }
     }
