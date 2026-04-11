@@ -1,8 +1,8 @@
 use hashbrown::HashMap;
 
-use crate::position::{Ray3, UVec3, Vec3};
+use crate::position::{IVec3, IVec3Ext, Ray3, UVec3, UVec3Ext};
 use crate::world::WorldState;
-use crate::{constants::*, position::IVec3};
+use crate::constants::*;
 use std::sync::Arc;
 
 #[repr(C)]
@@ -352,26 +352,14 @@ pub fn mesh(chunk_refs: ChunkRefs) -> [Vec<Instance>; 6] {
 }
 
 pub fn raycast(ray: Ray3, world: &WorldState) -> Option<IVec3> {
-    let mut position: IVec3 = ray.origin.into_iter().map(|v| v as i32).collect();
+    let mut position = ray.origin.as_ivec3();
 
-    let step: IVec3 = ray
-        .reciprical
-        .into_iter()
-        .map(|v| v.signum() as i32)
-        .collect();
-    let delta: Vec3 = ray.reciprical.into_iter().map(|v| v.abs()).collect();
+    let step = ray.reciprocal.signum().as_ivec3();
+    let delta = ray.reciprocal.abs();
 
-    let select: Vec3 = ray
-        .reciprical
-        .into_iter()
-        .map(|v| 0.5 + 0.5 * v.signum())
-        .collect();
-    let planes: Vec3 = position.into_iter().map(|v| v as f32).collect::<Vec3>() + select;
-    let mut t = Vec3::new(
-        (planes.x - ray.origin.x) * ray.reciprical.x,
-        (planes.y - ray.origin.y) * ray.reciprical.y,
-        (planes.z - ray.origin.z) * ray.reciprical.z,
-    );
+    let select = ray.reciprocal.signum() * 0.5 + 0.5;
+    let planes = position.as_vec3() + select;
+    let mut t = (planes - ray.origin) * ray.reciprocal;
 
     for _ in 0..1000 {
         let global_position = position.to_chunk_pos();

@@ -15,6 +15,7 @@ fastnoise-lite = "1.1.1"
 image = "0.25.10"
 hashbrown = "0.16.1"
 zstd = "0.13"
+glam = "0.32.1"
 
 [profile.release]
 debug = true

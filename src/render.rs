@@ -1,7 +1,7 @@
 use crate::{
     chunk::{Instance, VoxelType, mesh, raycast},
     constants::{CHUNK_SIZE, RENDER_DISTANCE},
-    position::{IVec3, Ray3, Vec3},
+    position::{IVec3, IVec3Ext, Ray3, Vec3},
     world::WorldState,
 };
 use cgmath::Vector3;

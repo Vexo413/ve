@@ -1,7 +1,7 @@
 use crate::chunk::{Chunk, ChunkRefs, VoxelType};
 use crate::constants::*;
 use crate::io::{IORequest, IOResponse, load_chunk, save_chunk};
-use crate::position::IVec3;
+use crate::position::{IVec3, IVec3Ext, UVec3Ext};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use hashbrown::{HashMap, HashSet};
 use std::sync::Arc;
